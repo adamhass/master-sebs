@@ -1,12 +1,12 @@
+# Master-SeBS: A fork of SeBS for Serverless Benchmarking Suites
 
-[![CircleCI](https://circleci.com/gh/spcl/serverless-benchmarks.svg?style=shield)](https://circleci.com/gh/spcl/serverless-benchmarks)
-![Release](https://img.shields.io/github/v/release/spcl/serverless-benchmarks)
-![License](https://img.shields.io/github/license/spcl/serverless-benchmarks)
-![GitHub issues](https://img.shields.io/github/issues/spcl/serverless-benchmarks)
-![GitHub pull requests](https://img.shields.io/github/issues-pr/spcl/serverless-benchmarks)
-[![Slack](https://img.shields.io/badge/Slack-Join%20%23serverless--benchmark-purple?logo=Slack)](https://join.slack.com/t/serverlessbenchmark/shared_invite/zt-30622ov74-_S9QeDjAJLZSe9bJC8tStw)
+The base of this project is [serverless](https://github.com/spcl/serverless-benchmarks?tab=readme-ov-file) and any contributions made on this base are purely for research purposes.
 
-# SeBS: Serverless Benchmark Suite
+Below is the full README of the original creator's repository. This repository follows the rules set by the BSD license.
+
+Author: Georg Zsolnai
+
+---
 
 **FaaS benchmarking suite for serverless functions with automatic build, deployment, and measurements.**
 
@@ -20,7 +20,6 @@ See the [installation instructions](#installation) to learn how to configure SeB
 commercial and open-source serverless systems.
 Then, take a look at [usage instructions](docs/usage.md) to see how
 SeBS can automatically launch serverless functions and entire experiments in the cloud!
-
 
 SeBS provides support for **automatic deployment** and invocation of benchmarks on
 commercial and black-box platforms
@@ -44,13 +43,13 @@ Or do you want to use SeBS in your work and you need new features?
 For more information on how to configure, use, and extend SeBS, see our
 documentation:
 
-* [How to use SeBS?](docs/usage.md)
-* [Which benchmark applications are offered?](docs/benchmarks.md)
-* [Which experiments can be launched to evaluate FaaS platforms?](docs/experiments.md)
-* [How to configure serverless platforms?](docs/platforms.md)
-* [How SeBS builds and deploys functions?](docs/build.md)
-* [How SeBS package is designed?](docs/design.md)
-* [How to extend SeBS with new benchmarks, experiments, and platforms?](docs/modularity.md)
+- [How to use SeBS?](docs/usage.md)
+- [Which benchmark applications are offered?](docs/benchmarks.md)
+- [Which experiments can be launched to evaluate FaaS platforms?](docs/experiments.md)
+- [How to configure serverless platforms?](docs/platforms.md)
+- [How SeBS builds and deploys functions?](docs/build.md)
+- [How SeBS package is designed?](docs/design.md)
+- [How to extend SeBS with new benchmarks, experiments, and platforms?](docs/modularity.md)
 
 ### Publication
 
@@ -81,10 +80,11 @@ You can cite our software repository as well, using the citation button on the r
 ## Installation
 
 Requirements:
+
 - Docker (at least 19)
 - Python 3.7+ with:
-    - pip
-    - venv
+  - pip
+  - venv
 - `libcurl` and its headers must be available on your system to install `pycurl`
 - Standard Linux tools and `zip` installed
 
@@ -121,15 +121,15 @@ To verify the correctness of installation, you can use [our regression testing](
 
 ## Authors
 
-* [Marcin Copik (ETH Zurich)](https://github.com/mcopik/) - main author.
-* [Michał Podstawski (Future Processing SA)](https://github.com/micpod/) - contributed graph and DNA benchmarks, and worked on Google Cloud support.
-* [Laurin Brandner (ETH Zurich)](https://github.com/lbrndnr) - contributed serverless workflows.
-* [Nico Graf (ETH Zurich)](https://github.com/ncograf/) - contributed to the implementation of regression tests and bugfixes and helped with testing and documentation.
-* [Kacper Janda](https://github.com/Kacpro), [Mateusz Knapik](https://github.com/maknapik), [JmmCz](https://github.com/JmmCz), AGH University of Science and Technology - contributed together Google Cloud support.
-* [Grzegorz Kwaśniewski (ETH Zurich)](https://github.com/gkwasniewski) - worked on the modeling experiments.
-* [Paweł Żuk (University of Warsaw)](https://github.com/pmzuk) - contributed OpenWhisk support.
-* [Sascha Kehrli (ETH Zurich)](https://github.com/skehrli) - contributed local measurement of Docker containers.
-* [Kaleab](https://github.com/Kaleab-git) - contributed to SeBS local backend to make it portable between platforms and more robust on non-Linux systems.
-* [lawrence910426](https://github.com/lawrence910426) - contributed color-coded output to SeBS CLI.
-* [Abhishek Kumar](https://github.com/octonawish-akcodes) - contributed new language versions and Knative support.
-* [Prajin Khadka](https://github.com/prajinkhadka) - contributed new language versions, container support, and ARM builds.
+- [Marcin Copik (ETH Zurich)](https://github.com/mcopik/) - main author.
+- [Michał Podstawski (Future Processing SA)](https://github.com/micpod/) - contributed graph and DNA benchmarks, and worked on Google Cloud support.
+- [Laurin Brandner (ETH Zurich)](https://github.com/lbrndnr) - contributed serverless workflows.
+- [Nico Graf (ETH Zurich)](https://github.com/ncograf/) - contributed to the implementation of regression tests and bugfixes and helped with testing and documentation.
+- [Kacper Janda](https://github.com/Kacpro), [Mateusz Knapik](https://github.com/maknapik), [JmmCz](https://github.com/JmmCz), AGH University of Science and Technology - contributed together Google Cloud support.
+- [Grzegorz Kwaśniewski (ETH Zurich)](https://github.com/gkwasniewski) - worked on the modeling experiments.
+- [Paweł Żuk (University of Warsaw)](https://github.com/pmzuk) - contributed OpenWhisk support.
+- [Sascha Kehrli (ETH Zurich)](https://github.com/skehrli) - contributed local measurement of Docker containers.
+- [Kaleab](https://github.com/Kaleab-git) - contributed to SeBS local backend to make it portable between platforms and more robust on non-Linux systems.
+- [lawrence910426](https://github.com/lawrence910426) - contributed color-coded output to SeBS CLI.
+- [Abhishek Kumar](https://github.com/octonawish-akcodes) - contributed new language versions and Knative support.
+- [Prajin Khadka](https://github.com/prajinkhadka) - contributed new language versions, container support, and ARM builds.
