@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y docker jq
+
+systemctl enable --now docker
+
+if docker ps -a --format '{{.Names}}' | grep -q '^boki-zookeeper$'; then
+  docker rm -f boki-zookeeper
+fi
+
+docker run -d \
+  --name boki-zookeeper \
+  --restart unless-stopped \
+  -p ${zookeeper_port}:2181 \
+  zookeeper:3.9
+
+cat >/opt/boki-zookeeper-notes.txt <<NOTES
+ZooKeeper is running in container 'boki-zookeeper'.
+Client endpoint (private): \
+  $(hostname -I | awk '{print $1}'):${zookeeper_port}
+NOTES

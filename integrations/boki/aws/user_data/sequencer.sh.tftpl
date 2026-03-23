@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git gcc gcc-c++ make cmake pkg-config autoconf automake libtool curl unzip jq
+
+mkdir -p /opt/boki
+cd /opt/boki
+if [[ ! -d boki ]]; then
+  git clone "${boki_repo_url}" boki
+fi
+cd boki
+git fetch --all --tags
+git checkout "${boki_repo_ref}"
+
+%{ if enable_auto_build ~}
+./build_deps.sh
+make -j "$(nproc)"
+%{ endif ~}
+
+cat >/opt/boki/start-sequencer.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/boki/boki
+exec ./bin/release/sequencer \
+  --node_id=${node_id} \
+  --zookeeper_host=${zookeeper_host} \
+  --zookeeper_root_path=${zookeeper_root} \
+  --listen_addr=${listen_addr}
+SCRIPT
+chmod +x /opt/boki/start-sequencer.sh
+
+cat >/opt/boki/ROLE <<'ROLE'
+sequencer
+ROLE
+
+%{ if enable_auto_start ~}
+nohup /opt/boki/start-sequencer.sh >/var/log/boki-sequencer.log 2>&1 &
+%{ endif ~}

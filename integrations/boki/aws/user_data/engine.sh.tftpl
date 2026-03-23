@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git gcc gcc-c++ make cmake pkg-config autoconf automake libtool curl unzip jq
+
+mkdir -p /opt/boki
+cd /opt/boki
+if [[ ! -d boki ]]; then
+  git clone "${boki_repo_url}" boki
+fi
+cd boki
+git fetch --all --tags
+git checkout "${boki_repo_ref}"
+
+%{ if enable_auto_build ~}
+./build_deps.sh
+make -j "$(nproc)"
+%{ endif ~}
+
+mkdir -p "$(dirname "${func_config_path}")"
+cat > "${func_config_path}" <<'JSON'
+{}
+JSON
+%{ if func_config_content != "" ~}
+cat > "${func_config_path}" <<'JSON'
+${func_config_content}
+JSON
+%{ endif ~}
+
+cat >/opt/boki/start-engine.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/boki/boki
+exec ./bin/release/engine \
+  --node_id=${node_id} \
+  --enable_shared_log=true \
+  --root_path_for_ipc=${root_path_for_ipc} \
+  --func_config_file=${func_config_path} \
+  --zookeeper_host=${zookeeper_host} \
+  --zookeeper_root_path=${zookeeper_root} \
+  --listen_addr=${listen_addr}
+SCRIPT
+chmod +x /opt/boki/start-engine.sh
+
+cat >/opt/boki/ROLE <<'ROLE'
+engine
+ROLE
+
+%{ if enable_auto_start ~}
+nohup /opt/boki/start-engine.sh >/var/log/boki-engine.log 2>&1 &
+%{ endif ~}

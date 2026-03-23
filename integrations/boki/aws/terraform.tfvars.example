@@ -1,0 +1,52 @@
+project_name = "master-sebs-boki"
+aws_region   = "eu-north-1"
+
+vpc_cidr            = "10.40.0.0/16"
+public_subnet_cidrs = ["10.40.1.0/24", "10.40.2.0/24"]
+admin_cidr          = "0.0.0.0/0"
+
+# Optional: existing EC2 key pair name for SSH.
+key_pair_name = ""
+
+zookeeper_port      = 2181
+zookeeper_root_path = "/faas"
+
+gateway_http_port = 8080
+gateway_grpc_port = 50051
+
+zookeeper_instance_type  = "t3.small"
+controller_instance_type = "t3.medium"
+
+sequencer_instance_count = 1
+sequencer_instance_type  = "t3.medium"
+sequencer_node_id_start  = 101
+
+storage_instance_count = 1
+storage_instance_type  = "t3.medium"
+storage_node_id_start  = 201
+
+engine_instance_count = 1
+engine_instance_type  = "t3.large"
+engine_node_id_start  = 301
+
+gateway_instance_type = "t3.medium"
+client_instance_type  = "t3.small"
+
+# Set to 0 to auto-derive from role counts.
+controller_metalog_replicas = 0
+controller_userlog_replicas = 0
+controller_index_replicas   = 0
+num_phylogs                 = 1
+
+boki_repo_url = "https://github.com/ut-osa/boki.git"
+boki_repo_ref = "sosp-release"
+
+root_path_for_ipc = "/dev/shm/faas_ipc"
+
+# Optional function config passed to engine/gateway.
+func_config_path    = "/opt/boki/func_config.json"
+func_config_content = ""
+
+# Auto build/start are disabled by default to keep bootstrap predictable.
+enable_auto_build = false
+enable_auto_start = false

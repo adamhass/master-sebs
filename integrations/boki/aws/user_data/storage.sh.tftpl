@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git gcc gcc-c++ make cmake pkg-config autoconf automake libtool curl unzip jq
+
+mkdir -p /opt/boki
+cd /opt/boki
+if [[ ! -d boki ]]; then
+  git clone "${boki_repo_url}" boki
+fi
+cd boki
+git fetch --all --tags
+git checkout "${boki_repo_ref}"
+
+%{ if enable_auto_build ~}
+./build_deps.sh
+make -j "$(nproc)"
+%{ endif ~}
+
+mkdir -p ${db_path}
+
+cat >/opt/boki/start-storage.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/boki/boki
+exec ./bin/release/storage \
+  --node_id=${node_id} \
+  --db_path=${db_path} \
+  --zookeeper_host=${zookeeper_host} \
+  --zookeeper_root_path=${zookeeper_root} \
+  --listen_addr=${listen_addr}
+SCRIPT
+chmod +x /opt/boki/start-storage.sh
+
+cat >/opt/boki/ROLE <<'ROLE'
+storage
+ROLE
+
+%{ if enable_auto_start ~}
+nohup /opt/boki/start-storage.sh >/var/log/boki-storage.log 2>&1 &
+%{ endif ~}

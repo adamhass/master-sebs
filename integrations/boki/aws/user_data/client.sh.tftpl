@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y git python3 python3-pip jq
+
+mkdir -p /opt/boki
+cd /opt/boki
+if [[ ! -d boki ]]; then
+  git clone "${boki_repo_url}" boki
+fi
+cd boki
+git fetch --all --tags
+git checkout "${boki_repo_ref}"
+
+cat >/opt/boki/client-env.sh <<ENV
+export BOKI_GATEWAY_PRIVATE_IP=${gateway_private_ip}
+export BOKI_GATEWAY_PUBLIC_IP=${gateway_public_ip}
+export BOKI_GATEWAY_HTTP_PORT=${gateway_http_port}
+export BOKI_GATEWAY_GRPC_PORT=${gateway_grpc_port}
+ENV
+
+cat >/opt/boki/ROLE <<'ROLE'
+client
+ROLE
+
+cat >/opt/boki/BOOTSTRAP_NOTES.txt <<NOTES
+Use /opt/boki/client-env.sh to export gateway endpoint variables.
+Then run your benchmark driver from this node.
+NOTES
