@@ -1,14 +1,10 @@
-BENCHMARK_NAME = 'baseline-lambda-dynamodb'
-BENCHMARK_DESCRIPTION = 'Standard stateless Lambda with DynamoDB state backend'
-PARAMETERS = {'consistency_model': 'strong',
- 'primary_key': 'session_id',
- 'read_capacity': 1000,
- 'table_name': 'sebs-benchmark-state',
- 'write_capacity': 1000}
-EXPERIMENT = {'concurrency': [1, 10, 50, 100, 500],
- 'iterations': 20,
- 'payload_size': '1kb',
- 'workload': 'read-modify-write'}
+BENCHMARK_NAME = 'cloudburst-stateful'
+BENCHMARK_DESCRIPTION = 'Cloudburst stateful serverless runtime benchmark profile'
+PARAMETERS = {'client_mode': 'cloudburst-client',
+ 'composition_mode': 'single-function',
+ 'consistency_model': 'normal',
+ 'state_backend': 'anna-kvs'}
+EXPERIMENT = {'concurrency': [1, 10, 50, 100], 'iterations': 10, 'payload_size': '1kb', 'workload': 'mixed'}
 PAYLOAD_SIZE_BYTES = 1024
 
 
