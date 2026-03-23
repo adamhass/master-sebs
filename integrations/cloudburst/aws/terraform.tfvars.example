@@ -1,0 +1,25 @@
+project_name = "master-sebs-cloudburst"
+aws_region   = "eu-north-1"
+
+vpc_cidr            = "10.30.0.0/16"
+public_subnet_cidrs = ["10.30.1.0/24", "10.30.2.0/24"]
+admin_cidr          = "0.0.0.0/0"
+
+# Optional: existing EC2 key pair name for SSH.
+key_pair_name = ""
+
+anna_instance_count     = 1
+anna_instance_type      = "t3.medium"
+scheduler_instance_type = "t3.medium"
+client_instance_type    = "t3.small"
+executor_instance_type  = "t3.medium"
+
+executor_min_size         = 1
+executor_desired_capacity = 2
+executor_max_size         = 4
+
+cloudburst_repo_url = "https://github.com/hydro-project/cloudburst.git"
+cloudburst_repo_ref = "master"
+
+# Default to false
+enable_auto_start = false
