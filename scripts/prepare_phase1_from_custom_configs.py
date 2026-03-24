@@ -202,12 +202,22 @@ def make_perf_cost_config(
     }
 
 
-def build_notes_file(path: Path):
-    text = """\
+def build_notes_file(path: Path, active_benchmarks: List[str]):
+    systems_lines = "\n".join([f"- `{name}`" for name in sorted(active_benchmarks)])
+    text = f"""\
 # Phase1 Mapping Notes
 
 The files in `sebs-configs/*.json` are not native SeBS config files.
 This preparation step maps them to SeBS `perf-cost` experiment configs and benchmark skeletons.
+
+## Active Phase 1 Systems
+
+{systems_lines}
+
+## Scope Decision
+
+- excluded from active scope: `lambda + external db/dynamodb` baseline (removed to reduce Phase 1 breadth).
+- postponed from active scope: CRDT-based implementation/integration.
 
 ## Mappings Applied
 
@@ -283,6 +293,8 @@ def main():
         "",
     ]
 
+    active_benchmarks: List[str] = []
+
     for cfg_path in configs:
         with open(cfg_path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
@@ -294,6 +306,7 @@ def main():
         parameters = cfg.get("parameters", {})
 
         benchmark_name = benchmark_info.get("name", cfg_path.stem)
+        active_benchmarks.append(benchmark_name)
         description = benchmark_info.get("description", "")
 
         runtime = parse_runtime(benchmark_info.get("runtime", "python3.10"))
@@ -347,7 +360,7 @@ def main():
             run_lines.append("")
 
     write_text(run_script_path, "\n".join(run_lines).rstrip() + "\n", executable=True)
-    build_notes_file(notes_path)
+    build_notes_file(notes_path, active_benchmarks)
 
     print(f"Prepared {len(configs)} source configs from {source_dir}")
     print(f"Benchmarks: {benchmarks_root}")

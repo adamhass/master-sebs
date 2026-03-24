@@ -1,0 +1,51 @@
+{
+  "description": "Copy to multi_system_suite.json and set enabled:true per system. Commands run from repo root (cwd '.'). Export env vars (BASELINE_API_URL, BOKI_HTTP_URL, etc.) before running.",
+  "systems": [
+    {
+      "id": "baseline",
+      "enabled": false,
+      "steps": [
+        {
+          "name": "bench_and_normalize",
+          "command": "BASELINE_API_URL=\"${BASELINE_API_URL}\" ./integrations/baseline/run_baseline_bench.sh 50 && python3 integrations/baseline/baseline_to_common_schema.py --input-glob 'integrations/baseline/results/raw/*/collected_metrics.json' --output-jsonl integrations/baseline/results/normalized/baseline_common.jsonl --output-csv integrations/baseline/results/normalized/baseline_common.csv",
+          "cwd": "."
+        }
+      ],
+      "normalized_jsonl_outputs": [
+        "integrations/baseline/results/normalized/baseline_common.jsonl"
+      ]
+    },
+    {
+      "id": "boki",
+      "enabled": false,
+      "steps": [
+        {
+          "name": "bench_and_normalize",
+          "command": "BOKI_HTTP_URL=\"${BOKI_HTTP_URL}\" ./integrations/boki/run_boki_bench.sh 50 && python3 integrations/boki/boki_to_common_schema.py --input-glob 'integrations/boki/results/raw/*/collected_metrics.json' --output-jsonl integrations/boki/results/normalized/boki_common.jsonl --output-csv integrations/boki/results/normalized/boki_common.csv",
+          "cwd": "."
+        }
+      ],
+      "normalized_jsonl_outputs": [
+        "integrations/boki/results/normalized/boki_common.jsonl"
+      ]
+    },
+    {
+      "id": "cloudburst",
+      "enabled": false,
+      "steps": [
+        {
+          "name": "bench_and_normalize",
+          "command": "FUNCTION_ELB=\"${FUNCTION_ELB:-127.0.0.1}\" SCHEDULER_IP=\"${SCHEDULER_IP:-127.0.0.1}\" ./integrations/cloudburst/run_cloudburst_bench.sh composition 100 && python3 integrations/cloudburst/cloudburst_to_common_schema.py --input-glob 'integrations/cloudburst/results/raw/*/collected_metrics.json' --output-jsonl integrations/cloudburst/results/normalized/cloudburst_common.jsonl --output-csv integrations/cloudburst/results/normalized/cloudburst_common.csv",
+          "cwd": "."
+        }
+      ],
+      "normalized_jsonl_outputs": [
+        "integrations/cloudburst/results/normalized/cloudburst_common.jsonl"
+      ]
+    }
+  ],
+  "merged_output": {
+    "jsonl": "multi-system-results/all_systems_common.jsonl",
+    "csv": "multi-system-results/all_systems_common.csv"
+  }
+}
