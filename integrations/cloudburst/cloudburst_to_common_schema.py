@@ -12,6 +12,7 @@ if str(_INTEGRATIONS) not in sys.path:
     sys.path.insert(0, str(_INTEGRATIONS))
 
 from common_schema.io import write_csv, write_jsonl  # noqa: E402
+from common_schema.event_metrics import load_event_records, validate_event_records  # noqa: E402
 
 
 def sec_to_ms(value):
@@ -109,6 +110,29 @@ def normalize_record(input_path: str, payload: dict) -> List[Dict]:
     return out
 
 
+def strict_event_join_check(payload: dict, input_path: str, *, allow_fallback: bool) -> None:
+    source = payload.get("source", {})
+    run_dir = source.get("run_dir")
+    metadata = payload.get("metadata", {})
+    run_id = metadata.get("run_id")
+    if not run_dir or not run_id:
+        return
+    events = load_event_records(Path(run_dir))
+    if not events:
+        return
+    errors = validate_event_records(
+        events,
+        required_run_id=str(run_id),
+        expected_event_types=("invoke_end", "crdt_divergence_detected", "crdt_converged"),
+    )
+    if errors and not allow_fallback:
+        raise RuntimeError(
+            f"Strict event join failed for {input_path}: " + "; ".join(errors[:5])
+        )
+    if errors and allow_fallback:
+        print(f"[warn] event join fallback enabled for {input_path}: {'; '.join(errors[:3])}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Cloudburst collected metrics to common schema JSONL/CSV.")
     parser.add_argument(
@@ -118,6 +142,11 @@ def main():
     )
     parser.add_argument("--output-jsonl", required=True, help="Output JSONL path")
     parser.add_argument("--output-csv", required=True, help="Output CSV path")
+    parser.add_argument(
+        "--allow-time-window-fallback",
+        action="store_true",
+        help="Allow normalization to continue when strict event run_id/type checks fail.",
+    )
     args = parser.parse_args()
 
     files = sorted(glob.glob(args.input_glob))
@@ -127,6 +156,7 @@ def main():
     rows: List[Dict] = []
     for f in files:
         payload = json.loads(Path(f).read_text(encoding="utf-8"))
+        strict_event_join_check(payload, f, allow_fallback=args.allow_time_window_fallback)
         rows.extend(normalize_record(f, payload))
 
     write_jsonl(Path(args.output_jsonl), rows)

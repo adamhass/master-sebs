@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import statistics
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -61,6 +61,43 @@ def load_event_records(run_dir: Path) -> List[Dict[str, Any]]:
                 out.append(obj)
         return out
     return []
+
+
+def validate_event_records(
+    events: List[Dict[str, Any]],
+    *,
+    required_run_id: Optional[str] = None,
+    expected_event_types: Optional[Sequence[str]] = None,
+) -> List[str]:
+    errors: List[str] = []
+    if not events:
+        return errors
+
+    seen_types: Set[str] = set()
+    for idx, e in enumerate(events):
+        if not isinstance(e, dict):
+            errors.append(f"event[{idx}] is not an object")
+            continue
+        if "event_type" not in e:
+            errors.append(f"event[{idx}] missing event_type")
+        else:
+            seen_types.add(str(e.get("event_type")))
+        if "ts_ms" not in e:
+            errors.append(f"event[{idx}] missing ts_ms")
+        if "ok" not in e:
+            errors.append(f"event[{idx}] missing ok")
+        if required_run_id is not None:
+            rid = e.get("run_id")
+            if not rid:
+                errors.append(f"event[{idx}] missing run_id")
+            elif str(rid) != str(required_run_id):
+                errors.append(f"event[{idx}] run_id mismatch: {rid} != {required_run_id}")
+
+    if expected_event_types:
+        missing = [t for t in expected_event_types if t not in seen_types]
+        if missing:
+            errors.append(f"missing expected event types: {missing}")
+    return errors
 
 
 def _median(values: Iterable[float]) -> Optional[float]:

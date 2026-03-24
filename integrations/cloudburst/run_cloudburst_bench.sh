@@ -15,6 +15,8 @@ DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-cloudburst-local}"
 CB_EVENTS_JSONL="${CB_EVENTS_JSONL:-}"
 CB_TELEMETRY_JSON="${CB_TELEMETRY_JSON:-}"
 CB_EXTRA_METRICS_JSON="${CB_EXTRA_METRICS_JSON:-}"
+CB_EVENTS_JSONL_PATH="${CB_EVENTS_JSONL_PATH:-}"
+CB_RUN_ID="${CB_RUN_ID:-}"
 
 if [[ ! -d "${CB_ROOT}" ]]; then
   echo "Cloudburst root not found: ${CB_ROOT}" >&2
@@ -25,8 +27,26 @@ mkdir -p "${OUT_ROOT}"
 
 RUN_TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ID="cloudburst-${BENCHMARK_NAME}-n${NUM_REQUESTS}-${RUN_TS}"
+if [[ -z "${RUN_ID}" ]]; then
+  echo "ERROR: run_id is empty; aborting." >&2
+  exit 1
+fi
 RUN_DIR="${OUT_ROOT}/${RUN_ID}"
 mkdir -p "${RUN_DIR}"
+RUN_EVENTS_PATH="${RUN_DIR}/events-${RUN_ID}.jsonl"
+RUN_TELEMETRY_PATH="${RUN_DIR}/telemetry-${RUN_ID}.json"
+RUN_EXTRA_METRICS_PATH="${RUN_DIR}/extra-metrics-${RUN_ID}.json"
+
+# Canonical env mapping for emitter/collector contracts.
+if [[ -z "${CB_EVENTS_JSONL_PATH}" && -n "${CB_EVENTS_JSONL}" ]]; then
+  CB_EVENTS_JSONL_PATH="${CB_EVENTS_JSONL}"
+fi
+if [[ -z "${CB_EVENTS_JSONL}" && -n "${CB_EVENTS_JSONL_PATH}" ]]; then
+  CB_EVENTS_JSONL="${CB_EVENTS_JSONL_PATH}"
+fi
+if [[ -z "${CB_RUN_ID}" ]]; then
+  CB_RUN_ID="${RUN_ID}"
+fi
 
 cat > "${RUN_DIR}/metadata.json" <<EOF
 {
@@ -64,16 +84,51 @@ done
 
 # Optional: ingest runtime-emitted sidecars from Cloudburst/Anna deployment.
 if [[ -n "${CB_EVENTS_JSONL}" && -f "${CB_EVENTS_JSONL}" ]]; then
-  cp -f "${CB_EVENTS_JSONL}" "${RUN_DIR}/events.jsonl"
+  cp -f "${CB_EVENTS_JSONL}" "${RUN_EVENTS_PATH}"
+  cp -f "${RUN_EVENTS_PATH}" "${RUN_DIR}/events.jsonl"
   echo "Copied Cloudburst events sidecar: ${CB_EVENTS_JSONL}"
 fi
 if [[ -n "${CB_TELEMETRY_JSON}" && -f "${CB_TELEMETRY_JSON}" ]]; then
-  cp -f "${CB_TELEMETRY_JSON}" "${RUN_DIR}/telemetry.json"
+  cp -f "${CB_TELEMETRY_JSON}" "${RUN_TELEMETRY_PATH}"
+  cp -f "${RUN_TELEMETRY_PATH}" "${RUN_DIR}/telemetry.json"
   echo "Copied Cloudburst telemetry sidecar: ${CB_TELEMETRY_JSON}"
 fi
 if [[ -n "${CB_EXTRA_METRICS_JSON}" && -f "${CB_EXTRA_METRICS_JSON}" ]]; then
-  cp -f "${CB_EXTRA_METRICS_JSON}" "${RUN_DIR}/extra_metrics.json"
+  cp -f "${CB_EXTRA_METRICS_JSON}" "${RUN_EXTRA_METRICS_PATH}"
+  cp -f "${RUN_EXTRA_METRICS_PATH}" "${RUN_DIR}/extra_metrics.json"
   echo "Copied Cloudburst extra metrics sidecar: ${CB_EXTRA_METRICS_JSON}"
+fi
+
+# Optional strict sidecar smoke check.
+if [[ -f "${RUN_DIR}/events.jsonl" ]]; then
+  python3 - <<PY
+import json
+from pathlib import Path
+path = Path(${RUN_DIR@Q}) / "events.jsonl"
+run_id = ${RUN_ID@Q}
+expected = {"invoke_end", "crdt_divergence_detected", "crdt_converged"}
+seen = set()
+bad = 0
+for i, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        bad += 1
+        continue
+    rid = str(obj.get("run_id", ""))
+    if rid and rid != run_id:
+        bad += 1
+    et = obj.get("event_type")
+    if et:
+        seen.add(str(et))
+if bad:
+    raise SystemExit(f"Invalid event sidecar lines or run_id mismatches in {path}")
+if not (seen & expected):
+    raise SystemExit(f"Missing expected core event types in {path}; seen={sorted(seen)}")
+PY
 fi
 
 python3 "${SCRIPT_DIR}/collect_cloudburst_results.py" \
