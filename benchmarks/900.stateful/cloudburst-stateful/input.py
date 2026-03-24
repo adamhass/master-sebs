@@ -1,10 +1,24 @@
 BENCHMARK_NAME = 'cloudburst-stateful'
-BENCHMARK_DESCRIPTION = 'Cloudburst stateful serverless runtime benchmark profile'
-PARAMETERS = {'client_mode': 'cloudburst-client',
- 'composition_mode': 'single-function',
- 'consistency_model': 'normal',
- 'state_backend': 'anna-kvs'}
-EXPERIMENT = {'concurrency': [1, 10, 50, 100], 'iterations': 10, 'payload_size': '1kb', 'workload': 'mixed'}
+BENCHMARK_DESCRIPTION = (
+    'SeBS Lambda benchmark profile aligned with Cloudburst-style stateful serverless '
+    '(payload encodes scheduler / Anna-style metadata; native Cloudburst runs via integrations/cloudburst/)'
+)
+PARAMETERS = {
+    'scheduler_endpoint': '127.0.0.1:8080',
+    'anna_endpoint': '127.0.0.1:6450',
+    'consistency_model': 'normal',
+    'state_backend': 'anna-kvs',
+    'client_mode': 'cloudburst-client',
+    'composition_mode': 'single-function',
+    'state_size_kb': 0,
+}
+EXPERIMENT = {
+    'burn_in_period_s': 10,
+    'concurrency': [1, 10, 50, 100],
+    'iterations': 10,
+    'workload': 'mixed',
+    'payload_size': '1kb',
+}
 PAYLOAD_SIZE_BYTES = 1024
 
 

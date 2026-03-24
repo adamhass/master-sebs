@@ -13,6 +13,7 @@ def _to_bytes(value):
 
 
 def handler(event):
+    """Synthetic compute; same shape as other 900.stateful placeholders (not native Cloudburst IPC)."""
     begin = time.perf_counter_ns()
 
     payload = event.get("payload", "")
@@ -20,7 +21,6 @@ def handler(event):
     ops = max(1, int(event.get("ops", 1)))
     state_size_kb = max(0, int(event.get("state_size_kb", 0)))
 
-    # Lightweight synthetic workload placeholder for custom stateful systems.
     acc = 0
     for idx in range(min(ops * 64, 20000)):
         acc = (acc + idx + state_size_kb + len(payload_hash)) % 1000003
