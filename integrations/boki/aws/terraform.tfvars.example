@@ -38,8 +38,8 @@ controller_userlog_replicas = 0
 controller_index_replicas   = 0
 num_phylogs                 = 1
 
-boki_repo_url = "https://github.com/ut-osa/boki.git"
-boki_repo_ref = "sosp-release"
+boki_repo_url = "https://github.com/GeorgZs/master-boki.git"
+boki_repo_ref = "master"
 
 root_path_for_ipc = "/dev/shm/faas_ipc"
 

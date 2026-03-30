@@ -163,13 +163,13 @@ variable "client_instance_type" {
 variable "boki_repo_url" {
   type        = string
   description = "Boki source repository URL."
-  default     = "https://github.com/ut-osa/boki.git"
+  default     = "https://github.com/GeorgZs/master-boki.git"
 }
 
 variable "boki_repo_ref" {
   type        = string
   description = "Git branch/tag/commit to checkout."
-  default     = "sosp-release"
+  default     = "master"
 }
 
 variable "root_path_for_ipc" {

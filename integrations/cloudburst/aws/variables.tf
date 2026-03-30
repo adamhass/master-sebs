@@ -85,7 +85,7 @@ variable "executor_max_size" {
 variable "cloudburst_repo_url" {
   type        = string
   description = "Cloudburst source repository URL."
-  default     = "https://github.com/hydro-project/cloudburst.git"
+  default     = "https://github.com/GeorgZs/master-cloudburst.git"
 }
 
 variable "cloudburst_repo_ref" {

@@ -18,7 +18,7 @@ executor_min_size         = 1
 executor_desired_capacity = 2
 executor_max_size         = 4
 
-cloudburst_repo_url = "https://github.com/hydro-project/cloudburst.git"
+cloudburst_repo_url = "https://github.com/GeorgZs/master-cloudburst.git"
 cloudburst_repo_ref = "master"
 
 # Default to false
