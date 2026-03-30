@@ -80,6 +80,40 @@ The benchmark represents scientific computations offloaded to serverless functio
 
 This benchmark is inspired by the [DNAVisualization](https://github.com/Benjamin-Lee/DNAvisualization.org) project and it implements processing the `.fasta` file with the `squiggle` Python library.
 
+## Stateful Benchmarks (900.stateful)
+
+The `900.stateful` benchmark suite compares stateful serverless runtimes. Each benchmark performs a configurable KV state read/write plus lightweight compute and returns standardised timing in the SeBS `ExecutionResult` format (`request_id`, `is_cold`, `begin`, `end`, `measurement`).
+
+State size tiers: `test` = 1 KB, `small` = 64 KB, `large` = 512 KB.
+
+| Benchmark | System | State Backend | Invocation Path |
+|-----------|--------|---------------|-----------------|
+| `baseline-lambda-redis` | AWS Lambda | ElastiCache Redis | HTTP via API Gateway → Lambda → Redis `SET`/`GET` |
+| `cloudburst-stateful` | Cloudburst | Anna KVS | Native Cloudburst executor via `cloudburst.put()`/`cloudburst.get()` |
+| `boki-shared-log` | Boki | Shared log (slib) | Go binary via Boki gateway HTTP (Python stub is dead code) |
+
+### Baseline Lambda + Redis
+
+Deployed via Terraform (`integrations/baseline/aws/`). The benchmark function (`function.py`) uses a module-level `redis.ConnectionPool` for connection reuse across warm Lambda invocations. Cold-start detection uses a module-level `_is_cold` flag set on first import. The Terraform-deployed Lambda handler (`integrations/baseline/aws/lambda/handler.py`) is a thin wrapper that parses API Gateway events and calls the benchmark function.
+
+**Infrastructure:** ElastiCache Redis (cluster mode disabled) in the same VPC as Lambda. Redis endpoint is injected via `REDIS_HOST`/`REDIS_PORT` environment variables (set by Terraform).
+
+### Cloudburst Stateful
+
+Deployed via Terraform (`integrations/cloudburst/aws/`). The benchmark function follows the Cloudburst executor convention: `def stateful_benchmark(cloudburst, state_key, state_size_kb, ops, request_id)` where `cloudburst` is the user\_library object injected by the executor.
+
+A benchmark runner module (`master-cloudburst/cloudburst/server/benchmarks/stateful.py`) registers the function with the Cloudburst scheduler and runs it via `CloudburstConnection`. It is invoked as:
+
+```bash
+STATE_SIZE_KB=64 ./integrations/cloudburst/run_cloudburst_bench.sh stateful 200
+```
+
+Output is parsed by `collect_cloudburst_results.py` and normalized via `cloudburst_to_common_schema.py`.
+
+### Boki Shared Log
+
+The Python stub in `boki-shared-log/python/function.py` is **dead code** — Boki's shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The real benchmark is a Go binary registered with the Boki Launcher. SeBS sends HTTP requests to the Boki gateway; the Go function handles log operations and returns a JSON response.
+
 ## Serverless Workflows
 
 **(WiP)** Coming soon!
