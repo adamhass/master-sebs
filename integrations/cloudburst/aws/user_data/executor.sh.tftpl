@@ -25,7 +25,7 @@ ROLE
 
 LOCAL_IP="$(hostname -I | awk '{print $1}')"
 cat >/opt/cloudburst/cloudburst/conf/cloudburst-aws.yml <<EOF
-ip: ${LOCAL_IP}
+ip: $${LOCAL_IP}
 mgmt_ip: NULL
 executor:
   scheduler_ips:
