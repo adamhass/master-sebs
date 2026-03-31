@@ -2,22 +2,35 @@
 set -euxo pipefail
 
 dnf update -y
-dnf install -y git python3 python3-pip jq
+dnf install -y git python3 python3-pip jq protobuf-compiler
 
 mkdir -p /opt/cloudburst
 cd /opt/cloudburst
 if [[ ! -d cloudburst ]]; then
-  git clone "${cloudburst_repo_url}" cloudburst
+  git clone --recurse-submodules "${cloudburst_repo_url}" cloudburst
 fi
 cd cloudburst
 git fetch --all --tags
 git checkout "${cloudburst_repo_ref}"
-python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+git submodule update --init --recursive
+
+bash scripts/build.sh
+
+cd /tmp
+git clone --recurse-submodules https://github.com/hydro-project/anna anna-build
+cd anna-build/client/python
+bash compile.sh
+python3 setup.py install
+cd /tmp && rm -rf anna-build
+
+cd /opt/cloudburst/cloudburst
+PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install cloudpickle pyzmq zmq protobuf PyYAML numpy pandas pyarrow
 
 cat >/etc/profile.d/cloudburst_env.sh <<'ENV'
 export PYTHONPATH=/opt/cloudburst/cloudburst
 ENV
+
+chown -R ec2-user:ec2-user /opt/cloudburst
 
 cat >/opt/cloudburst/ROLE <<'ROLE'
 scheduler
@@ -31,7 +44,7 @@ executor:
     - ${scheduler_ip}
   thread_id: 0
 scheduler:
-  routing_address: ${scheduler_ip}
+  routing_address: ${anna_ip}
   metric_address: ${scheduler_ip}
   policy: locality
 benchmark:
