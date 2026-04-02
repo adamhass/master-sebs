@@ -293,15 +293,28 @@ When set to true, SeBS will remove the Minio instance after finishing all work.
 
 ## Boki
 
-Boki is a self-hosted stateful serverless runtime based on a shared log abstraction (SOSP '21). It is deployed on EC2 via Terraform (`integrations/boki/aws/`). SeBS does not manage Boki's lifecycle — it sends HTTP requests to the Boki gateway, and the Go benchmark binary handles shared log operations.
+Boki is a self-hosted stateful serverless runtime based on a shared log abstraction ([SOSP '21](https://github.com/ut-osa/boki)). Deployed on a single EC2 instance running Docker Compose via Terraform (`integrations/boki/aws/`).
 
 ### Infrastructure
 
-Deployed as 7 EC2 instances: ZooKeeper, Controller, Sequencer, Storage, Engine, Gateway, Client. All in a dedicated VPC (`10.40.0.0/16`). Services are started manually via SSH (`enable_auto_start = false`).
+**Single-node Docker Compose deployment** on `c5.4xlarge` (16 vCPU, 32GB RAM, 100GB gp3). All Boki components run as Docker containers using the official `zjia/boki:sosp-ae` image with `--privileged` for `io_uring` access.
+
+| Container | Role |
+|-----------|------|
+| `zookeeper` | Cluster coordination |
+| `zookeeper-setup` | Creates ZK paths + issues `cmd/start` after 50s |
+| `boki-controller` | Log metadata management |
+| `boki-sequencer` | Log ordering |
+| `boki-storage` | Log persistence (RocksDB) |
+| `boki-engine` | Function execution, shared log cache |
+| `boki-gateway` | HTTP entry point (port 8080) |
+| `stateful-bench` | Launcher + Go benchmark worker |
+
+**Why single-node:** Boki's `io_uring`-based gateway dispatch hangs when the gateway and engine run on separate EC2 instances (see ISSUES.md #10). The official [boki-benchmarks](https://github.com/ut-osa/boki-benchmarks) repo runs all components on one host via Docker Compose/Swarm. This matches the SOSP '21 artifact evaluation setup.
 
 ### Benchmark
 
-The Boki benchmark is a **Go binary** (not Python) because the shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The Python stub in `benchmarks/900.stateful/boki-shared-log/python/function.py` is dead code. The Go binary is registered with the Boki Launcher and returns JSON responses matching the SeBS `ExecutionResult` format.
+The Boki benchmark is a **Go binary** (not Python) because the shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The Python stub in `benchmarks/900.stateful/boki-shared-log/python/function.py` is dead code. The Go binary is mounted into the `stateful-bench` container via a shared volume and returns JSON responses matching the SeBS `ExecutionResult` format.
 
 ### Deployment
 
@@ -309,6 +322,12 @@ The Boki benchmark is a **Go binary** (not Python) because the shared log API (`
 cd integrations/boki/aws/
 # Set key_pair_name and admin_cidr in terraform.tfvars
 terraform init && terraform plan && terraform apply
+# SSH in and upload the Go benchmark binary
+scp -i thesis-key.pem master-boki/benchmarks/stateful/stateful_bench_static ec2-user@<IP>:/opt/boki/workspace/stateful_bench
+# Start the cluster
+ssh -i thesis-key.pem ec2-user@<IP> "cd /opt/boki/workspace && docker-compose up -d"
+# Wait ~60s for ZK setup, then test
+curl http://<IP>:8080/function/statefulBench?state_key=test&state_size_kb=1&ops=1
 ```
 
 ## Cloudburst

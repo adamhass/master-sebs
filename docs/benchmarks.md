@@ -134,7 +134,40 @@ Output is parsed by `collect_cloudburst_results.py` and normalized via `cloudbur
 
 ### Boki Shared Log
 
-The Python stub in `boki-shared-log/python/function.py` is **dead code** — Boki's shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The real benchmark is a Go binary registered with the Boki Launcher. SeBS sends HTTP requests to the Boki gateway; the Go function handles log operations and returns a JSON response.
+The Python stub in `boki-shared-log/python/function.py` is **dead code** — Boki's shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The real benchmark is a Go binary in `master-boki/benchmarks/stateful/`.
+
+**Implementation:** The Go binary implements Boki's `FuncHandlerFactory` + `FuncHandler` interfaces. It is registered with the Boki Launcher via `func_config.json` and invoked through the gateway at `http://GATEWAY_IP:8080/function/statefulBench`.
+
+**State API choice (Option A — statestore):** The benchmark uses `slib/statestore` (`obj.SetString()` / `obj.Get()`) rather than the raw shared log API (`SharedLogAppend` / `SharedLogReadNext`). This is a deliberate design decision:
+
+- **Faithfulness:** The statestore API is how Boki applications are meant to interact with state. It exercises the full slib path: JSON serialization, Snappy compression, log append with tagged entries, and log replay on read. Using the raw log API would bypass this and measure only the log transport layer.
+- **Comparability:** The other two systems (Lambda+Redis and Cloudburst+Anna) also use their high-level state APIs (`redis.SET`/`GET` and `cloudburst.put()`/`cloudburst.get()`). Using the statestore keeps the comparison at the same abstraction level.
+- **Trade-off:** The statestore adds JSON + Snappy overhead on top of the raw log. This means Boki's measured latency includes serialization cost that Lambda+Redis (binary protocol) and Cloudburst (cloudpickle) handle differently. This is noted in the results as a serialization overhead caveat, not a measurement flaw — it reflects the actual developer experience of each system.
+
+**Per-invocation flow:**
+1. Parse JSON input (`state_key`, `state_size_kb`, `ops`, `request_id`)
+2. `statestore.CreateEnv()` → `env.Object(state_key)`
+3. `obj.SetString("data", randomPayload)` — writes to shared log (append)
+4. `obj.Sync()` + `obj.Get("data")` — reads from shared log (replay)
+5. Lightweight compute loop (same as Python benchmarks)
+6. Return JSON matching SeBS `ExecutionResult` format
+
+**Build:**
+```bash
+cd master-boki/benchmarks/stateful
+go build -o stateful_bench .
+```
+
+**func_config.json** (register with Boki Launcher):
+```json
+[{"funcName": "statefulBench", "funcId": 1, "minWorkers": 1, "maxWorkers": 4}]
+```
+
+**Gateway invocation:**
+```bash
+curl -s -X POST http://GATEWAY_IP:8080/function/statefulBench \
+  -d '{"state_key":"bench:state","state_size_kb":64,"ops":1}'
+```
 
 ## Serverless Workflows
 
