@@ -56,6 +56,10 @@ anna:
 EOF
 
 %{ if enable_auto_start ~}
+touch /var/log/cloudburst-executor.log
+chown ec2-user:ec2-user /var/log/cloudburst-executor.log
 cd /opt/cloudburst/cloudburst
-nohup python3 cloudburst/server/executor/server.py conf/cloudburst-aws.yml >/var/log/cloudburst-executor.log 2>&1 &
+nohup sudo -u ec2-user env PYTHONPATH=/opt/cloudburst/cloudburst \
+  python3 -u cloudburst/server/executor/server.py conf/cloudburst-aws.yml \
+  >/var/log/cloudburst-executor.log 2>&1 &
 %{ endif ~}

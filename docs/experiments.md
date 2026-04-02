@@ -141,3 +141,33 @@ Requirement: public IP.
 The result helps to estimate the analytical models describing cold startups.
 Currently supported only on AWS.
 
+## Stateful Benchmark Scripts (2026-04-02)
+
+The following standalone scripts are provided for metrics that don't fit SeBS's experiment framework. All are in `scripts/`.
+
+### Post-Processing (`scripts/postprocess_results.py`)
+
+Reads SeBS `*_results.json` output and computes latency percentiles (P50/P95/P99), throughput, and cost estimates. Supports single files or directories, and exports to CSV for plotting.
+
+```bash
+python3 scripts/postprocess_results.py results/warm_results.json --ec2-hourly-rate 0.34 --csv output.csv
+python3 scripts/postprocess_results.py results/  # process entire directory
+```
+
+### Cold Start Measurement (`scripts/measure_cold_start.sh`)
+
+Measures system restart cold start latency for Boki (Docker container restart) and Lambda (function invocation). Restarts workers, waits for the gateway to come up, times the first invocation, and repeats N times.
+
+```bash
+SSH_KEY=thesis-key.pem ./scripts/measure_cold_start.sh boki "ubuntu@IP" "http://IP:8080" 30
+./scripts/measure_cold_start.sh lambda "https://API_URL/" 30
+```
+
+### Scaling Interruption (`scripts/measure_scaling.sh`)
+
+Runs sustained concurrent load, triggers a mid-experiment scale event (add/remove worker), and records per-invocation latency with phase labels for disruption window analysis.
+
+```bash
+SSH_KEY=thesis-key.pem ./scripts/measure_scaling.sh boki "ubuntu@IP" "http://IP:8080" up 120 10
+```
+

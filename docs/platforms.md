@@ -293,41 +293,58 @@ When set to true, SeBS will remove the Minio instance after finishing all work.
 
 ## Boki
 
-Boki is a self-hosted stateful serverless runtime based on a shared log abstraction ([SOSP '21](https://github.com/ut-osa/boki)). Deployed on a single EC2 instance running Docker Compose via Terraform (`integrations/boki/aws/`).
+Boki is a self-hosted stateful serverless runtime based on a shared log abstraction ([SOSP '21](https://github.com/ut-osa/boki)). Deployed as a multi-node EC2 cluster via Terraform (`integrations/boki/aws/EC2/`).
 
 ### Infrastructure
 
-**Single-node Docker Compose deployment** on `c5.4xlarge` (16 vCPU, 32GB RAM, 100GB gp3). All Boki components run as Docker containers using the official `zjia/boki:sosp-ae` image with `--privileged` for `io_uring` access.
+**Multi-node EC2 deployment** with separate infrastructure and engine nodes. All Boki components run as Docker containers using the official `zjia/boki:sosp-ae` image with `--privileged` for `io_uring` access.
 
-| Container | Role |
-|-----------|------|
-| `zookeeper` | Cluster coordination |
-| `zookeeper-setup` | Creates ZK paths + issues `cmd/start` after 50s |
-| `boki-controller` | Log metadata management |
-| `boki-sequencer` | Log ordering |
-| `boki-storage` | Log persistence (RocksDB) |
-| `boki-engine` | Function execution, shared log cache |
-| `boki-gateway` | HTTP entry point (port 8080) |
-| `stateful-bench` | Launcher + Go benchmark worker |
+| Node | Role | Components |
+|------|------|------------|
+| Infrastructure (`infra`) | Fixed cluster services | ZooKeeper, Controller, 2x Sequencer, Storage, Gateway (port 8080) |
+| Engine(s) (ASG) | Scalable compute | Engine + Launcher + Worker(s) per node |
 
-**Why single-node:** Boki's `io_uring`-based gateway dispatch hangs when the gateway and engine run on separate EC2 instances (see ISSUES.md #10). The official [boki-benchmarks](https://github.com/ut-osa/boki-benchmarks) repo runs all components on one host via Docker Compose/Swarm. This matches the SOSP '21 artifact evaluation setup.
+Engine nodes register with ZooKeeper on the infra node and are discovered by the Gateway for load-balanced function dispatch. Workers communicate with the Engine via IPC (shared tmpfs), so each Engine node is a self-contained compute unit. Scaling = more Engine EC2 instances.
 
 ### Benchmark
 
-The Boki benchmark is a **Go binary** (not Python) because the shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The Python stub in `benchmarks/900.stateful/boki-shared-log/python/function.py` is dead code. The Go binary is mounted into the `stateful-bench` container via a shared volume and returns JSON responses matching the SeBS `ExecutionResult` format.
+The Boki benchmark is a **Go binary** (not Python) because the shared log API (`BokiStore`, `BokiQueue` in `slib/lib.go`) is Go-only. The Python stub in `benchmarks/900.stateful/boki-shared-log/python/function.py` is dead code. The Go binary runs inside the Engine container and returns JSON responses matching the SeBS `ExecutionResult` format.
 
 ### Deployment
 
 ```bash
-cd integrations/boki/aws/
+cd integrations/boki/aws/EC2/
 # Set key_pair_name and admin_cidr in terraform.tfvars
 terraform init && terraform plan && terraform apply
-# SSH in and upload the Go benchmark binary
-scp -i thesis-key.pem master-boki/benchmarks/stateful/stateful_bench_static ec2-user@<IP>:/opt/boki/workspace/stateful_bench
-# Start the cluster
-ssh -i thesis-key.pem ec2-user@<IP> "cd /opt/boki/workspace && docker-compose up -d"
-# Wait ~60s for ZK setup, then test
-curl http://<IP>:8080/function/statefulBench?state_key=test&state_size_kb=1&ops=1
+# Wait ~60s for ZK setup + engine registration, then test
+curl http://<INFRA_IP>:8080/function/statefulBench?state_key=test&state_size_kb=1&ops=1
+```
+
+### SeBS Provider Integration (2026-04-02)
+
+Boki is registered as a SeBS provider in `sebs/boki/`. Since Boki functions are pre-deployed Go binaries, the provider **completely bypasses** SeBS's code packaging and Docker build pipeline:
+
+- `get_function()` — overridden to skip `code_package.build()`. Returns a `BokiFunction` pointing at the gateway URL.
+- `create_trigger()` — returns an `HTTPTrigger` that POSTs to `{gateway_url}/function/{function_name}`.
+- All lifecycle methods (`package_code`, `create_function`, `update_function`) are no-ops.
+- Activated with `SEBS_WITH_BOKI=true` environment variable.
+
+**Config** (`config/boki-experiment.json`):
+```json
+{
+  "deployment": {
+    "name": "boki",
+    "boki": {
+      "gateway_url": "http://16.170.141.184:8080",
+      "function_name": "statefulBench"
+    }
+  }
+}
+```
+
+**Run:**
+```bash
+SEBS_WITH_BOKI=true python3 sebs.py experiment invoke perf-cost --config config/boki-experiment.json
 ```
 
 ## Cloudburst
@@ -397,10 +414,34 @@ terraform init && terraform plan && terraform apply
 # Start scheduler, executors manually or set enable_auto_start = true
 ```
 
-### Deployment
+### SeBS Provider Integration (2026-04-02)
 
-```bash
-cd integrations/cloudburst/aws/
-# Set key_pair_name and admin_cidr in terraform.tfvars
-terraform init && terraform plan && terraform apply
+Cloudburst is registered as a SeBS provider in `sebs/cloudburst_provider/`. Since Cloudburst uses ZMQ (not HTTP) for function invocation, the provider wraps `CloudburstConnection` in a `LibraryTrigger`:
+
+- `get_function()` — overridden to skip `code_package.build()`. Returns a `CloudburstFunction` pointing at the scheduler.
+- `create_trigger()` — returns a `LibraryTrigger` that connects to the Cloudburst scheduler via ZMQ and invokes functions through `call_dag()`.
+- The trigger lazily initializes `CloudburstConnection` and registers the benchmark function + DAG on first invocation.
+- `master-cloudburst/` is added to `sys.path` at runtime for the `CloudburstConnection` import.
+- Activated with `SEBS_WITH_CLOUDBURST=true` environment variable.
+
+**Config** (`config/cloudburst-experiment.json`):
+```json
+{
+  "deployment": {
+    "name": "cloudburst",
+    "cloudburst": {
+      "scheduler_ip": "13.62.226.107",
+      "client_ip": "0.0.0.0",
+      "local": true,
+      "cloudburst_path": "../master-cloudburst"
+    }
+  }
+}
 ```
+
+**Run:**
+```bash
+SEBS_WITH_CLOUDBURST=true python3 sebs.py experiment invoke perf-cost --config config/cloudburst-experiment.json
+```
+
+**Note:** The `client_ip` should be the IP of the machine running SeBS (reachable from the Cloudburst scheduler). Use `0.0.0.0` for local testing or the EC2 private IP when running from the client node. State configuration (`STATE_SIZE_KB`, `STATE_KEY`, `OPS`) is read from environment variables on the executor side, not from the SeBS payload.

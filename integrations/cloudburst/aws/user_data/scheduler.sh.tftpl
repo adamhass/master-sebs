@@ -36,25 +36,30 @@ cat >/opt/cloudburst/ROLE <<'ROLE'
 scheduler
 ROLE
 
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 cat >/opt/cloudburst/cloudburst/conf/cloudburst-aws.yml <<EOF
-ip: ${scheduler_ip}
+ip: $${LOCAL_IP}
 mgmt_ip: NULL
 executor:
   scheduler_ips:
-    - ${scheduler_ip}
+    - $${LOCAL_IP}
   thread_id: 0
 scheduler:
   routing_address: ${anna_ip}
-  metric_address: ${scheduler_ip}
+  metric_address: $${LOCAL_IP}
   policy: locality
 benchmark:
-  cloudburst_address: ${scheduler_ip}
+  cloudburst_address: $${LOCAL_IP}
   thread_id: 0
 anna:
   private_ip: ${anna_ip}
 EOF
 
 %{ if enable_auto_start ~}
+touch /var/log/cloudburst-scheduler.log
+chown ec2-user:ec2-user /var/log/cloudburst-scheduler.log
 cd /opt/cloudburst/cloudburst
-nohup python3 cloudburst/server/scheduler/server.py conf/cloudburst-aws.yml >/var/log/cloudburst-scheduler.log 2>&1 &
+nohup sudo -u ec2-user env PYTHONPATH=/opt/cloudburst/cloudburst \
+  python3 -u cloudburst/server/scheduler/server.py conf/cloudburst-aws.yml \
+  >/var/log/cloudburst-scheduler.log 2>&1 &
 %{ endif ~}
