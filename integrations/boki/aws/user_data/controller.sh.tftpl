@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-dnf update -y
-dnf install -y git gcc gcc-c++ make cmake pkg-config autoconf automake libtool curl unzip jq
+yum update -y
+yum install -y git gcc gcc-c++ make cmake3 pkgconfig autoconf automake libtool curl unzip jq
+ln -sf /usr/bin/cmake3 /usr/local/bin/cmake 2>/dev/null || true
 
 mkdir -p /opt/boki
 cd /opt/boki

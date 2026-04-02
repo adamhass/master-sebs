@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y docker.io docker-compose jq git
+
+systemctl enable --now docker
+usermod -aG docker ubuntu
+
+# Pull official Boki image
+docker pull zjia/boki:sosp-ae
+docker pull zookeeper:3.6.2
+
+# Set up workspace
+mkdir -p /opt/boki/workspace /opt/boki/data /opt/boki/output /mnt/inmem/boki/ipc /mnt/inmem/boki/output /mnt/storage
+
+# ZK setup script
+cat > /opt/boki/workspace/zk_setup.sh << 'ZKSCRIPT'
+#!/bin/bash
+export ZOO_LOG4J_PROP="WARN,CONSOLE"
+SERVER="zookeeper:2181"
+./bin/zkCli.sh -server $SERVER <<EOF
+deleteall /faas
+create /faas
+create /faas/node
+create /faas/view
+create /faas/freeze
+create /faas/cmd
+quit
+EOF
+if [[ $? != 0 ]]; then
+    echo "Failed to setup zookeeper"
+    exit 1
+fi
+echo "ZK paths created. Waiting 50s for all nodes to register..."
+sleep 50
+./bin/zkCli.sh -server $SERVER create /faas/cmd/start
+echo "Start command issued."
+sleep infinity
+ZKSCRIPT
+chmod +x /opt/boki/workspace/zk_setup.sh
+
+# func_config
+cat > /opt/boki/workspace/func_config.json << 'FCONF'
+[
+  {"funcName":"statefulBench","funcId":1,"minWorkers":1,"maxWorkers":8,"defaultLogSpace":0,"allowHttpGet":true,"qsAsInput":true}
+]
+FCONF
+
+# Launcher wrapper
+cat > /opt/boki/workspace/run_launcher << 'LAUNCHER'
+#!/bin/bash
+/boki/launcher \
+    --fprocess_mode=go \
+    --root_path_for_ipc=/tmp/boki/ipc \
+    --fprocess_output_dir=/opt/bench/output \
+    --fprocess="$1" \
+    --func_id=$2
+LAUNCHER
+chmod +x /opt/boki/workspace/run_launcher
+
+# docker-compose.yml
+cat > /opt/boki/workspace/docker-compose.yml << 'COMPOSE'
+version: "3.8"
+services:
+  zookeeper:
+    image: zookeeper:3.6.2
+    hostname: zookeeper
+    ports: ["2181:2181"]
+    restart: always
+  zookeeper-setup:
+    image: zookeeper:3.6.2
+    command: /tmp/boki/zk_setup.sh
+    depends_on: [zookeeper]
+    volumes: ["/opt/boki/workspace/zk_setup.sh:/tmp/boki/zk_setup.sh"]
+    restart: always
+  boki-engine:
+    image: zjia/boki:sosp-ae
+    hostname: boki-engine-1
+    privileged: true
+    entrypoint: ["/boki/engine", "--zookeeper_host=zookeeper:2181", "--listen_iface=eth0", "--root_path_for_ipc=/tmp/boki/ipc", "--func_config_file=/tmp/boki/func_config.json", "--num_io_workers=4", "--io_uring_entries=2048", "--io_uring_fd_slots=4096", "--enable_shared_log", "--slog_engine_enable_cache", "--slog_engine_cache_cap_mb=1024"]
+    depends_on: [zookeeper-setup]
+    volumes:
+      - boki-ipc:/tmp/boki
+      - /opt/boki/workspace/func_config.json:/tmp/boki/func_config.json
+    environment:
+      FAAS_NODE_ID: 1
+    restart: always
+  boki-controller:
+    image: zjia/boki:sosp-ae
+    privileged: true
+    entrypoint: ["/boki/controller", "--zookeeper_host=zookeeper:2181", "--metalog_replicas=1", "--userlog_replicas=1", "--index_replicas=1"]
+    depends_on: [zookeeper-setup]
+    restart: always
+  boki-gateway:
+    image: zjia/boki:sosp-ae
+    hostname: faas-gateway
+    privileged: true
+    ports: ["${gateway_http_port}:${gateway_http_port}"]
+    entrypoint: ["/boki/gateway", "--zookeeper_host=zookeeper:2181", "--listen_iface=eth0", "--http_port=${gateway_http_port}", "--func_config_file=/tmp/boki/func_config.json", "--num_io_workers=2", "--io_uring_entries=2048", "--io_uring_fd_slots=4096", "--lb_per_fn_round_robin", "--max_running_requests=0"]
+    depends_on: [zookeeper-setup]
+    volumes: ["/opt/boki/workspace/func_config.json:/tmp/boki/func_config.json"]
+    restart: always
+  boki-storage:
+    image: zjia/boki:sosp-ae
+    hostname: faas-storage-1
+    privileged: true
+    entrypoint: ["/boki/storage", "--zookeeper_host=zookeeper:2181", "--listen_iface=eth0", "--db_path=/tmp/storage/logdata", "--num_io_workers=2", "--io_uring_entries=2048", "--io_uring_fd_slots=4096", "--slog_local_cut_interval_us=300", "--slog_storage_bgthread_interval_ms=1", "--slog_storage_backend=rocksdb", "--slog_storage_cache_cap_mb=4096"]
+    depends_on: [zookeeper-setup]
+    volumes: ["/mnt/storage:/tmp/storage"]
+    environment:
+      FAAS_NODE_ID: 1
+    restart: always
+  boki-sequencer:
+    image: zjia/boki:sosp-ae
+    hostname: faas-sequencer-1
+    privileged: true
+    entrypoint: ["/boki/sequencer", "--zookeeper_host=zookeeper:2181", "--listen_iface=eth0", "--num_io_workers=2", "--io_uring_entries=2048", "--io_uring_fd_slots=4096", "--slog_global_cut_interval_us=300"]
+    depends_on: [zookeeper-setup]
+    environment:
+      FAAS_NODE_ID: 1
+    restart: always
+  stateful-bench:
+    image: zjia/boki:sosp-ae
+    privileged: true
+    entrypoint: ["/opt/bench/run_launcher", "/opt/bench/stateful_bench", "1"]
+    volumes:
+      - boki-ipc:/tmp/boki
+      - /opt/boki/workspace/run_launcher:/opt/bench/run_launcher
+      - /opt/boki/workspace/stateful_bench:/opt/bench/stateful_bench
+      - /opt/boki/workspace/output:/opt/bench/output
+    environment:
+      FAAS_GO_MAX_PROC_FACTOR: 4
+      GOGC: 1000
+    depends_on: [boki-engine]
+    restart: always
+volumes:
+  boki-ipc:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=2g
+COMPOSE
+
+chown -R ubuntu:ubuntu /opt/boki
+
+cat > /opt/boki/READY << 'EOF'
+Boki all-in-one node ready (Ubuntu 20.04).
+1. Upload stateful_bench binary to /opt/boki/workspace/stateful_bench
+2. cd /opt/boki/workspace && docker-compose up -d
+3. Wait ~60s for ZK setup + node registration + start command
+4. curl http://localhost:${gateway_http_port}/function/statefulBench?state_key=test&state_size_kb=1&ops=1
+EOF
