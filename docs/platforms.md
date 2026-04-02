@@ -358,16 +358,16 @@ For architecture diagrams, see:
 
 ### Infrastructure
 
-Deployed as 5 EC2 instances + Anna KVS Docker containers:
+Deployed as 5+ EC2 instances + Anna KVS Docker containers:
 
 | Node | Instance | Role |
 |------|----------|------|
 | Scheduler | `t3.medium` | Dispatches function calls to executors via ZMQ |
-| Executor x2 | `t3.medium` (ASG) | Runs benchmark functions, accesses Anna KVS |
+| Executor x2-4 | `t3.medium` (ASG, auto-start) | Runs benchmark functions, accesses Anna KVS |
 | Anna KVS | `t3.medium` | State storage — 3 Docker containers (route, kvs, monitor) |
-| Client | `t3.small` | Benchmark driver, runs `run_benchmark.py` |
+| Client + HTTP gateway | `t3.small` | HTTP→ZMQ bridge (port 8088) for external invocation |
 
-All in a dedicated VPC (`10.30.0.0/16`). Cluster-internal traffic via ZMQ (ports 4000-6000) and Anna KVS (port 6450).
+All in a dedicated VPC (`10.30.0.0/16`). Cluster-internal traffic via ZMQ (ports 5000-5011) and Anna KVS (port 6450). Executor ASG scales with `enable_auto_start = true` — new instances auto-bootstrap and connect to the scheduler.
 
 ### Anna KVS
 
@@ -414,34 +414,27 @@ terraform init && terraform plan && terraform apply
 # Start scheduler, executors manually or set enable_auto_start = true
 ```
 
+### HTTP Gateway (2026-04-02)
+
+Cloudburst is invoked via an HTTP→ZMQ bridge (`scripts/cloudburst_http_gateway.py`) running on the client EC2 node. This enables uniform HTTP invocation from the benchmarking machine, matching the Boki and Lambda invocation paths.
+
+```bash
+# On the client EC2 node:
+export PYTHONPATH=/opt/cloudburst/cloudburst
+python3 cloudburst_http_gateway.py --scheduler-ip 10.30.1.117 --port 8088
+
+# From the benchmarking machine:
+curl -X POST http://13.60.72.131:8088/function/stateful_bench \
+  -d '{"request_id":"test"}'
+```
+
+The gateway lazily creates a `CloudburstConnection`, registers the benchmark function + DAG on first request, then translates subsequent HTTP POST requests to `call_dag()` over ZMQ. See `LIMITATIONS.md` L1 for the extra-hop latency caveat.
+
 ### SeBS Provider Integration (2026-04-02)
 
-Cloudburst is registered as a SeBS provider in `sebs/cloudburst_provider/`. Since Cloudburst uses ZMQ (not HTTP) for function invocation, the provider wraps `CloudburstConnection` in a `LibraryTrigger`:
+A SeBS provider also exists in `sebs/cloudburst_provider/` for VPC-internal execution (ZMQ-based `LibraryTrigger`). However, for the experiment matrix, the HTTP gateway + `batch_invoke.py` approach is preferred since it runs from the same machine as all other experiments.
 
-- `get_function()` — overridden to skip `code_package.build()`. Returns a `CloudburstFunction` pointing at the scheduler.
-- `create_trigger()` — returns a `LibraryTrigger` that connects to the Cloudburst scheduler via ZMQ and invokes functions through `call_dag()`.
-- The trigger lazily initializes `CloudburstConnection` and registers the benchmark function + DAG on first invocation.
-- `master-cloudburst/` is added to `sys.path` at runtime for the `CloudburstConnection` import.
-- Activated with `SEBS_WITH_CLOUDBURST=true` environment variable.
-
-**Config** (`config/cloudburst-experiment.json`):
-```json
-{
-  "deployment": {
-    "name": "cloudburst",
-    "cloudburst": {
-      "scheduler_ip": "13.62.226.107",
-      "client_ip": "0.0.0.0",
-      "local": true,
-      "cloudburst_path": "../master-cloudburst"
-    }
-  }
-}
-```
-
-**Run:**
+**Scaling (2026-04-02):** Executor ASG validated — scaled 2→3, new executor auto-bootstrapped (cloned repo, built protobuf, installed deps), auto-started, and connected to scheduler without manual intervention. Scale command:
 ```bash
-SEBS_WITH_CLOUDBURST=true python3 sebs.py experiment invoke perf-cost --config config/cloudburst-experiment.json
+aws autoscaling set-desired-capacity --auto-scaling-group-name master-sebs-cloudburst-executors --desired-capacity 3
 ```
-
-**Note:** The `client_ip` should be the IP of the machine running SeBS (reachable from the Cloudburst scheduler). Use `0.0.0.0` for local testing or the EC2 private IP when running from the client node. State configuration (`STATE_SIZE_KB`, `STATE_KEY`, `OPS`) is read from environment variables on the executor side, not from the SeBS payload.

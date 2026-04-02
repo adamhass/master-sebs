@@ -94,7 +94,7 @@ State size tiers: `test` = 1 KB, `small` = 64 KB, `large` = 512 KB.
 | Benchmark | System | State Backend | Invocation Path |
 |-----------|--------|---------------|-----------------|
 | `baseline-lambda-redis` | AWS Lambda | ElastiCache Redis | HTTP via API Gateway → Lambda → Redis `SET`/`GET` |
-| `cloudburst-stateful` | Cloudburst | Anna KVS | Native Cloudburst executor via `cloudburst.put()`/`cloudburst.get()` |
+| `cloudburst-stateful` | Cloudburst | Anna KVS | HTTP gateway → ZMQ → Scheduler → Executor → Anna KVS `put()`/`get()` |
 | `boki-shared-log` | Boki | Shared log (slib) | Go binary via Boki gateway HTTP (Python stub is dead code) |
 
 ### Baseline Lambda + Redis
@@ -116,21 +116,19 @@ Deployed via Terraform (`integrations/cloudburst/aws/`). The benchmark function 
 - `client/run_benchmark.py`: accept `CLOUDBURST_LOCAL=true` env var for remote single-node Anna deployments.
 - `server/benchmarks/stateful.py`: new benchmark module for SeBS-compatible stateful workload.
 
-A benchmark runner module (`master-cloudburst/cloudburst/server/benchmarks/stateful.py`) registers the function with the Cloudburst scheduler and runs it via `CloudburstConnection`. It is invoked as:
+**Invocation methods:**
 
-```bash
-CLOUDBURST_LOCAL=true STATE_SIZE_KB=64 python3 cloudburst/client/run_benchmark.py stateful <scheduler_ip> <num_requests> <client_ip>
-```
+1. **HTTP gateway (preferred for experiments):** `scripts/cloudburst_http_gateway.py` runs on the client EC2 node and translates HTTP POST to ZMQ `call_dag()`. This enables uniform invocation via `batch_invoke.py` from the benchmarking machine — same as Boki and Lambda.
+   ```bash
+   curl -X POST http://<CLIENT_IP>:8088/function/stateful_bench -d '{"request_id":"test"}'
+   ```
 
-Or via the integration runner:
+2. **Native ZMQ (VPC-internal only):** `run_benchmark.py` on the client node.
+   ```bash
+   CLOUDBURST_LOCAL=true STATE_SIZE_KB=64 python3 cloudburst/client/run_benchmark.py stateful <scheduler_ip> <num_requests> <client_ip>
+   ```
 
-```bash
-CLOUDBURST_LOCAL=true STATE_SIZE_KB=64 ./integrations/cloudburst/run_cloudburst_bench.sh stateful 200
-```
-
-Output is parsed by `collect_cloudburst_results.py` and normalized via `cloudburst_to_common_schema.py`.
-
-**Preliminary results (64KB state, 5 invocations):** E2E median 21ms, scheduler overhead ~1ms, KVS latency ~20ms. See [PRELIM\_RESULTS.md](../../PRELIM_RESULTS.md) for full data.
+See [LIMITATIONS.md](../../LIMITATIONS.md) L1 for the HTTP gateway extra-hop caveat.
 
 ### Boki Shared Log
 

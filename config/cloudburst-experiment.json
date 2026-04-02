@@ -22,7 +22,7 @@
   "deployment": {
     "name": "cloudburst",
     "cloudburst": {
-      "scheduler_ip": "13.62.226.107",
+      "scheduler_ip": "10.30.1.117",
       "client_ip": "0.0.0.0",
       "local": true,
       "cloudburst_path": "../master-cloudburst"
