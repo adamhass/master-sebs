@@ -27,6 +27,8 @@ def generate_input(
     upload_func,
     nosql_func,
 ):
+    import uuid
+
     size_map = {"test": 1, "small": 64, "large": 512}
     state_size_kb = size_map.get(size, 64)
 
@@ -34,4 +36,5 @@ def generate_input(
         "state_size_kb": state_size_kb,
         "state_key": "bench:state",
         "ops": 1,
+        "request_id": uuid.uuid4().hex,
     }
