@@ -24,22 +24,46 @@ import os
 import sys
 import time
 import uuid
+import threading
 import traceback
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-# CloudburstConnection is imported lazily on first request
-_connection = None
+# Connection pool — each CloudburstConnection has its own ZMQ sockets
+_pool = []
+_pool_lock = threading.Lock()
+_pool_size = 0
 _registered = False
+MAX_POOL_SIZE = 10
 
 
 def get_connection(scheduler_ip, client_ip, local):
-    global _connection
-    if _connection is None:
+    """Get a connection from the pool, or create a new one."""
+    global _pool_size
+    with _pool_lock:
+        if _pool:
+            return _pool.pop()
+
+    # Create new connection outside the lock
+    if _pool_size < MAX_POOL_SIZE:
         from cloudburst.client.client import CloudburstConnection
-        print(f"Connecting to Cloudburst scheduler at {scheduler_ip} (local={local})")
-        _connection = CloudburstConnection(scheduler_ip, client_ip, local=local)
-    return _connection
+        tid = _pool_size
+        _pool_size += 1
+        print(f"Creating CloudburstConnection #{tid} to {scheduler_ip} (local={local})")
+        return CloudburstConnection(scheduler_ip, client_ip, tid=tid, local=local)
+    else:
+        # Pool exhausted — wait for a connection to be returned
+        while True:
+            with _pool_lock:
+                if _pool:
+                    return _pool.pop()
+            time.sleep(0.01)
+
+
+def return_connection(conn):
+    """Return a connection to the pool."""
+    with _pool_lock:
+        _pool.append(conn)
 
 
 def _make_stateful_bench():
@@ -89,24 +113,34 @@ def _make_stateful_bench():
     return stateful_bench
 
 
+_register_lock = threading.Lock()
+
+
 def ensure_registered(scheduler_ip, client_ip, local):
+    """Register the benchmark function exactly once, using a dedicated connection."""
     global _registered
     if _registered:
         return
-    conn = get_connection(scheduler_ip, client_ip, local)
+    with _register_lock:
+        if _registered:
+            return
 
-    bench_fn = _make_stateful_bench()
-    print("Registering stateful_bench function...")
-    cloud_fn = conn.register(bench_fn, "stateful_bench")
-    if cloud_fn is None:
-        raise RuntimeError("Failed to register stateful_bench")
+        from cloudburst.client.client import CloudburstConnection
+        print("Creating registration connection...")
+        reg_conn = CloudburstConnection(scheduler_ip, client_ip, tid=99, local=local)
 
-    success, error = conn.register_dag("stateful_dag", ["stateful_bench"], [])
-    if not success:
-        raise RuntimeError(f"Failed to register DAG: {error}")
+        bench_fn = _make_stateful_bench()
+        print("Registering stateful_bench function...")
+        cloud_fn = reg_conn.register(bench_fn, "stateful_bench")
+        if cloud_fn is None:
+            print("  Function registration returned None (may already exist)")
 
-    _registered = True
-    print("Function and DAG registered successfully")
+        success, error = reg_conn.register_dag("stateful_dag", ["stateful_bench"], [])
+        if not success:
+            print(f"  DAG registration returned error {error} (may already exist)")
+
+        _registered = True
+        print("Registration complete")
 
 
 class CloudburstHandler(BaseHTTPRequestHandler):
@@ -124,14 +158,16 @@ class CloudburstHandler(BaseHTTPRequestHandler):
 
             ensure_registered(self.scheduler_ip, self.client_ip, self.local)
             conn = get_connection(self.scheduler_ip, self.client_ip, self.local)
-
-            begin = time.time()
-            result = conn.call_dag(
-                "stateful_dag",
-                {"stateful_bench": [request_id]},
-                direct_response=True,
-            )
-            end = time.time()
+            try:
+                begin = time.time()
+                result = conn.call_dag(
+                    "stateful_dag",
+                    {"stateful_bench": [request_id]},
+                    direct_response=True,
+                )
+                end = time.time()
+            finally:
+                return_connection(conn)
 
             if isinstance(result, dict):
                 response = result
@@ -220,8 +256,8 @@ def main():
     CloudburstHandler.client_ip = client_ip
     CloudburstHandler.local = args.local
 
-    server = HTTPServer(("0.0.0.0", args.port), CloudburstHandler)
-    print(f"Cloudburst HTTP gateway listening on 0.0.0.0:{args.port}")
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), CloudburstHandler)
+    print(f"Cloudburst HTTP gateway (threaded) listening on 0.0.0.0:{args.port}")
     print(f"  Scheduler: {scheduler_ip}")
     print(f"  Client IP: {client_ip}")
     print(f"  Local mode: {args.local}")

@@ -22,11 +22,16 @@ AWS_PROFILE = "sebs-admin"
 # Instance ID to friendly name mapping
 INSTANCE_NAMES = {
     # Boki
-    "i-0e7abb3b37ecd1b40": "boki-infra",
+    "i-02bf2731c5c8a65e6": "boki-infra",
+    "i-0e16e04b79a6a77cc": "boki-engine-1",
+    "i-0f1f2cb037182fd57": "boki-engine-2",
     # Cloudburst
     "i-0e1fde6e88eee5e2b": "cb-scheduler",
     "i-0e12a41fe9274226b": "cb-anna",
     "i-0bfa86e6dbe9deeac": "cb-client",
+    "i-02cf964e83c27a1cf": "cb-executor-1",
+    "i-0402b462c6a23b49c": "cb-executor-2",
+    "i-06368e8b489c9c4ad": "cb-executor-3",
 }
 
 
@@ -53,11 +58,16 @@ def get_instance_ids():
 
 def get_metric(instance_id, metric_name, start, end):
     """Query a single metric for an instance."""
+    # CPU metrics have an extra dimension: cpu=cpu-total
+    dimensions = f"Name=InstanceId,Value={instance_id}"
+    if metric_name.startswith("cpu_"):
+        dimensions += " Name=cpu,Value=cpu-total"
+
     cmd = [
         "aws", "--profile", AWS_PROFILE, "cloudwatch", "get-metric-statistics",
         "--namespace", NAMESPACE,
         "--metric-name", metric_name,
-        "--dimensions", f"Name=InstanceId,Value={instance_id}",
+        "--dimensions", *dimensions.split(" "),
         "--start-time", start.isoformat(),
         "--end-time", end.isoformat(),
         "--period", str(PERIOD),
