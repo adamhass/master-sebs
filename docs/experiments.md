@@ -171,3 +171,26 @@ Runs sustained concurrent load, triggers a mid-experiment scale event (add/remov
 SSH_KEY=thesis-key.pem ./scripts/measure_scaling.sh boki "ubuntu@IP" "http://IP:8080" up 120 10
 ```
 
+### CloudWatch Metrics Collection (`scripts/collect_cloudwatch_metrics.py`)
+
+Queries CloudWatch `SeBS/StatefulBenchmark` namespace and exports CPU, memory, network metrics to CSV. Use during experiment windows to correlate resource usage with load.
+
+```bash
+python3 scripts/collect_cloudwatch_metrics.py --start "2026-04-02T19:20:00Z" --end "2026-04-02T19:53:00Z" --output metrics.csv
+python3 scripts/collect_cloudwatch_metrics.py --last 30m --output metrics.csv
+```
+
+### Batch Invocation (`scripts/batch_invoke.py`)
+
+HTTP batch invocation tool for any system. Produces SeBS-compatible JSON output. Supports configurable concurrency and state size. Includes retry with backoff and max-error abort.
+
+```bash
+python3 scripts/batch_invoke.py http://IP:8080/function/statefulBench --reps 200 --concurrency 10 --state-size-kb 64 --output results.json
+```
+
+### Experiment Run History
+
+See `docs/runs/` for documented experiment runs:
+- `run_1.md` — First full matrix (2026-04-02). All 3 systems, Anna using `local=True`.
+- `run_2.md` — Second full matrix (2026-04-02). Anna routing fixed, CloudWatch monitoring, cold start + scaling measurements.
+

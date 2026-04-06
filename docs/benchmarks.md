@@ -128,7 +128,6 @@ Deployed via Terraform (`integrations/cloudburst/aws/`). The benchmark function 
    CLOUDBURST_LOCAL=true STATE_SIZE_KB=64 python3 cloudburst/client/run_benchmark.py stateful <scheduler_ip> <num_requests> <client_ip>
    ```
 
-See [LIMITATIONS.md](../../LIMITATIONS.md) L1 for the HTTP gateway extra-hop caveat.
 
 ### Boki Shared Log
 

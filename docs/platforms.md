@@ -428,7 +428,7 @@ curl -X POST http://13.60.72.131:8088/function/stateful_bench \
   -d '{"request_id":"test"}'
 ```
 
-The gateway lazily creates a `CloudburstConnection`, registers the benchmark function + DAG on first request, then translates subsequent HTTP POST requests to `call_dag()` over ZMQ. See `LIMITATIONS.md` L1 for the extra-hop latency caveat.
+The gateway lazily creates a `CloudburstConnection`, registers the benchmark function + DAG on first request, then translates subsequent HTTP POST requests to `call_dag()` over ZMQ. See limitations documented in the study to understand nature of hop and its disadvantages over native systems.
 
 ### SeBS Provider Integration (2026-04-02)
 
