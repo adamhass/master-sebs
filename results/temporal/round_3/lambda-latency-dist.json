@@ -1,0 +1,53 @@
+{
+  "_invocations": {
+    "statefulBench": {
+      "00e8f52a8739457fbe1c0ffea08964be": {
+        "request_id": "00e8f52a8739457fbe1c0ffea08964be",
+        "times": {
+          "client": 692431,
+          "benchmark": 18851,
+          "http_startup": 0.011548,
+          "http_first_byte_return": 0.692214
+        },
+        "output": {
+          "request_id": "00e8f52a8739457fbe1c0ffea08964be",
+          "is_cold": true,
+          "begin": 1776444448.0651784,
+          "end": 1776444448.0840302,
+          "measurement": {
+            "compute_time_us": 10,
+            "state_read_lat_us": 1327,
+            "state_write_lat_us": 17111,
+            "state_size_kb": 64,
+            "state_ops": 1,
+            "accumulator": 6112
+          }
+        },
+        "stats": {
+          "cold_start": true,
+          "failure": false
+        },
+        "billing": {
+          "_billed_time": null,
+          "_gb_seconds": 0,
+          "_memory": null
+        },
+        "provider_times": {
+          "execution": 0,
+          "initialization": 0
+        }
+      }
+    }
+  },
+  "_metrics": {},
+  "begin_time": 1776444447.3940754,
+  "end_time": 1776444483.4661927,
+  "config": {
+    "url": "https://r8ea9hwc5i.execute-api.eu-north-1.amazonaws.com/",
+    "reps": 1000,
+    "concurrency": 10,
+    "state_size_kb": 64
+  },
+  "result_bucket": "",
+  "statistics": {}
+}
