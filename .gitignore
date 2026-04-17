@@ -200,3 +200,20 @@ changelog/
 
 # Orchestrator
 integrations/orchestrator/
+
+
+# lambda
+lambda_package/
+lambda_bundle.zip
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+
+# lambda durable
+lambda_durable_package/
+lambda_durable_bundle.zip
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars

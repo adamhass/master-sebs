@@ -32,3 +32,25 @@ output "client_public_ip" {
   value       = var.deploy_sebs_client ? aws_instance.client[0].public_ip : null
   description = "SeBS benchmark client public IP (SSH access)."
 }
+
+# --- Lambda Durable outputs ---
+
+output "durable_function_name" {
+  value       = aws_lambda_function.durable.function_name
+  description = "Lambda Durable function name."
+}
+
+output "durable_function_arn" {
+  value       = aws_lambda_function.durable.arn
+  description = "Lambda Durable function ARN."
+}
+
+output "durable_api_endpoint" {
+  value       = "${aws_apigatewayv2_stage.default.invoke_url}/durable"
+  description = "Lambda Durable HTTP endpoint (POST /durable)."
+}
+
+output "dynamodb_table_name" {
+  value       = aws_dynamodb_table.durable_state.name
+  description = "DynamoDB state table name."
+}
