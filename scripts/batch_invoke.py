@@ -3,7 +3,10 @@
 Batch HTTP invocation script for pre-deployed serverless functions.
 
 Produces SeBS-compatible JSON output that postprocess_results.py can read.
-Works for Lambda (API Gateway), Boki (gateway), or any HTTP endpoint.
+Works for Lambda (API Gateway), Boki (gateway), Restate, or any HTTP endpoint.
+
+If the URL contains {key}, each invocation substitutes a unique key (for Restate
+Virtual Object routing). Otherwise the URL is used as-is.
 
 Usage:
     python3 scripts/batch_invoke.py <url> [options]
@@ -16,6 +19,10 @@ Examples:
     # Boki: 200 invocations at concurrency 50
     python3 scripts/batch_invoke.py http://13.63.165.110:8080/function/statefulBench \
         --reps 200 --concurrency 50 --state-size-kb 64 --output results/boki-c50.json
+
+    # Restate: unique key per invocation (Virtual Object routing)
+    python3 scripts/batch_invoke.py 'http://server:8080/statefulBench/{key}/run' \
+        --reps 200 --concurrency 10 --state-size-kb 64 --output results/restate-c10.json
 """
 
 import argparse
@@ -57,6 +64,7 @@ def _invoke_once_inner(url: str, payload: dict) -> dict:
     c.setopt(pycurl.POST, 1)
     c.setopt(pycurl.POSTFIELDS, json.dumps(payload))
     c.setopt(pycurl.SSL_VERIFYHOST, 0)
+    c.setopt(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_1)
     c.setopt(pycurl.SSL_VERIFYPEER, 0)
     c.setopt(pycurl.TIMEOUT, 30)
 
@@ -118,19 +126,23 @@ def run_batch(url, reps, concurrency, state_size_kb, state_key):
     consecutive_errors = 0
     max_consecutive_errors = 50
 
+    has_key_template = "{key}" in url
+
     while completed < reps:
         batch_size = min(concurrency, reps - completed)
 
         with ThreadPoolExecutor(max_workers=batch_size) as pool:
             futures = []
             for _ in range(batch_size):
+                req_id = uuid.uuid4().hex
+                invoke_url = url.replace("{key}", req_id) if has_key_template else url
                 payload = {
-                    "state_key": f"{state_key}:{uuid.uuid4().hex[:8]}",
+                    "state_key": f"{state_key}:{req_id[:8]}",
                     "state_size_kb": state_size_kb,
                     "ops": 1,
-                    "request_id": uuid.uuid4().hex,
+                    "request_id": req_id,
                 }
-                futures.append(pool.submit(invoke_once, url, payload))
+                futures.append(pool.submit(invoke_once, invoke_url, payload))
 
             batch_errors = 0
             for future in as_completed(futures):

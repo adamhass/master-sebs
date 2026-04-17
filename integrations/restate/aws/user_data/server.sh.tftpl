@@ -1,0 +1,112 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+NODE_INDEX=${node_index}
+NODE_NAME="${node_name}"
+CLUSTER_NAME="${cluster_name}"
+AUTO_PROVISION=${auto_provision}
+SERVER_COUNT=${server_count}
+HANDLER_PORT=9080
+
+echo "=== Restate server bootstrap (node $NODE_INDEX / $NODE_NAME) ==="
+
+# --- Install Docker + Python ---
+apt-get update -y
+apt-get install -y docker.io jq python3 python3-pip python3-dev libcurl4-openssl-dev gcc
+systemctl enable docker
+systemctl start docker
+
+# --- Pull Restate image ---
+docker pull docker.io/restatedev/restate:latest
+
+# --- Persistent data + config directories ---
+mkdir -p /opt/restate/data /opt/restate/config
+
+# --- Detect own private IP ---
+MY_IP=$(ip -o route get 1 | awk '{print $7}')
+echo "Node $NODE_INDEX private IP: $MY_IP"
+
+# --- Write restate.toml ---
+cat > /opt/restate/config/restate.toml <<TOML
+cluster-name = "$CLUSTER_NAME"
+node-name = "$NODE_NAME"
+default-replication = 2
+auto-provision = $AUTO_PROVISION
+advertised-address = "$MY_IP:5122"
+
+roles = ["worker", "log-server", "metadata-server", "admin", "http-ingress"]
+
+[metadata-client]
+%{ if node_index == 0 ~}
+addresses = ["$MY_IP:5122"]
+%{ else ~}
+addresses = ["${bootstrap_ip}:5122"]
+%{ endif ~}
+
+[admin]
+bind-address = "0.0.0.0:9070"
+
+[ingress]
+bind-address = "0.0.0.0:8080"
+TOML
+
+echo "Config written:"
+cat /opt/restate/config/restate.toml
+
+# --- Start Restate with config ---
+docker run -d \
+  --name restate \
+  --restart unless-stopped \
+  --network host \
+  -v /opt/restate/data:/restate-data \
+  -v /opt/restate/config/restate.toml:/etc/restate/restate.toml:ro \
+  docker.io/restatedev/restate:latest \
+  --config-file /etc/restate/restate.toml
+
+echo "Waiting for Restate to be healthy..."
+for i in $(seq 1 60); do
+  if curl -sf http://localhost:9070/health > /dev/null 2>&1; then
+    echo "Restate healthy after $i seconds"
+    break
+  fi
+  sleep 2
+done
+
+# --- Deploy standalone handler on node 0 ---
+if [ "$NODE_INDEX" = "0" ]; then
+  echo "Node 0: deploying standalone handler on port $HANDLER_PORT..."
+
+  pip3 install 'restate_sdk[serde]' hypercorn 2>&1 | tail -3
+
+  mkdir -p /opt/restate/handler
+  cat > /opt/restate/handler/handler.py <<'PYEOF'
+${handler_py}
+PYEOF
+
+  nohup python3 /opt/restate/handler/handler.py > /var/log/restate-handler.log 2>&1 &
+  echo "Handler PID: $!"
+
+  for i in $(seq 1 30); do
+    if curl -sf http://localhost:$HANDLER_PORT/health > /dev/null 2>&1; then
+      echo "Handler ready after $i seconds"
+      break
+    fi
+    sleep 1
+  done
+
+  sleep 5
+  for attempt in $(seq 1 5); do
+    if curl -sf -X POST http://localhost:9070/deployments \
+      -H 'Content-Type: application/json' \
+      -d "{\"uri\": \"http://$MY_IP:$HANDLER_PORT\"}"; then
+      echo "Handler registered on attempt $attempt"
+      break
+    fi
+    echo "Registration attempt $attempt failed, retrying..."
+    sleep 5
+  done
+fi
+
+echo "=== Restate node $NODE_INDEX ready ==="
+echo "RESTATE_SERVER_READY" > /tmp/restate-server-ready

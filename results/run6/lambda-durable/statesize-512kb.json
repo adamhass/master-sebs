@@ -1,0 +1,16 @@
+{
+  "_invocations": {
+    "statefulBench": {}
+  },
+  "_metrics": {},
+  "begin_time": 1776255203.243465,
+  "end_time": 1776255693.30301,
+  "config": {
+    "url": "https://r8ea9hwc5i.execute-api.eu-north-1.amazonaws.com/durable",
+    "reps": 200,
+    "concurrency": 10,
+    "state_size_kb": 512
+  },
+  "result_bucket": "",
+  "statistics": {}
+}

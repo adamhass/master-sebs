@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate thesis comparison plots for all three stateful serverless systems.
+Generate thesis comparison plots for all five stateful serverless systems.
 
 Usage:
     cd master-sebs
@@ -21,13 +21,33 @@ import numpy as np
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 RESULTS_DIR = SCRIPT_DIR.parent.parent / "results" / "run2"
+RESULTS_DIR_RUN6 = SCRIPT_DIR.parent.parent / "results" / "run6"
 OUT_DIR = SCRIPT_DIR / "out"
 OUT_DIR.mkdir(exist_ok=True)
 
 # Style
-COLORS = {"Lambda + Redis": "#FF9900", "Boki": "#2196F3", "Cloudburst + Anna": "#4CAF50"}
+COLORS = {
+    "Lambda + Redis": "#FF9900",
+    "Lambda Durable": "#E53935",
+    "Boki": "#2196F3",
+    "Cloudburst + Anna": "#4CAF50",
+    "Restate": "#9C27B0",
+}
 SYSTEMS = list(COLORS.keys())
-SYSTEM_DIRS = {"Lambda + Redis": "lambda", "Boki": "boki", "Cloudburst + Anna": "cloudburst"}
+SYSTEM_DIRS = {
+    "Lambda + Redis": "lambda",
+    "Lambda Durable": "lambda-durable",
+    "Boki": "boki",
+    "Cloudburst + Anna": "cloudburst",
+    "Restate": "restate",
+}
+SHORT_NAMES = {
+    "Lambda + Redis": "Lambda\nBaseline",
+    "Lambda Durable": "Lambda\nDurable",
+    "Boki": "Boki",
+    "Cloudburst + Anna": "Cloudburst",
+    "Restate": "Restate",
+}
 
 plt.rcParams.update({
     "font.size": 11,
@@ -55,18 +75,58 @@ def load_results(system_dir, filename):
     return results, duration
 
 
-def extract_client_latencies(results):
+def load_results_run6(system_dir, filename):
+    path = RESULTS_DIR_RUN6 / system_dir / filename
+    if not path.exists():
+        return None
+    with open(path) as f:
+        data = json.load(f)
+    inv_key = "_invocations"
+    invocations = list(data.get(inv_key, {}).values())
+    if not invocations:
+        return None
+    results = list(invocations[0].values())
+    duration = data.get("end_time", 0) - data.get("begin_time", 1)
+    return results, duration
+
+
+def _load(name, filename):
+    """Load results for a system, using run6 for new systems."""
+    sdir = SYSTEM_DIRS[name]
+    if name in ("Lambda Durable", "Restate"):
+        return load_results_run6(sdir, filename)
+    return load_results(sdir, filename)
+
+
+def _is_warm(r):
+    """Return True if invocation is not a cold start and not a failure."""
+    if r.get("stats", {}).get("failure"):
+        return False
+    if r.get("stats", {}).get("cold_start"):
+        return False
+    if r.get("output", {}).get("is_cold"):
+        return False
+    return True
+
+
+def extract_client_latencies(results, warm_only=True):
+    if warm_only:
+        return [r["times"]["client"] / 1000 for r in results if _is_warm(r)]
     return [r["times"]["client"] / 1000 for r in results if not r.get("stats", {}).get("failure")]
 
 
-def extract_write_latencies(results):
-    return [r["output"]["measurement"]["state_write_lat_us"]
-            for r in results if "measurement" in r.get("output", {})]
+def extract_write_latencies(results, warm_only=True):
+    filt = (r for r in results if "measurement" in r.get("output", {}))
+    if warm_only:
+        filt = (r for r in filt if _is_warm(r))
+    return [r["output"]["measurement"]["state_write_lat_us"] for r in filt]
 
 
-def extract_read_latencies(results):
-    return [r["output"]["measurement"]["state_read_lat_us"]
-            for r in results if "measurement" in r.get("output", {})]
+def extract_read_latencies(results, warm_only=True):
+    filt = (r for r in results if "measurement" in r.get("output", {}))
+    if warm_only:
+        filt = (r for r in filt if _is_warm(r))
+    return [r["output"]["measurement"]["state_read_lat_us"] for r in filt]
 
 
 # ── Plot 1: Throughput Scaling Curve ──
@@ -76,26 +136,26 @@ def plot_throughput_scaling():
     concurrencies = [1, 10, 50, 100]
 
     for name in SYSTEMS:
-        sdir = SYSTEM_DIRS[name]
         throughputs = []
         concs_available = []
         for c in concurrencies:
-            data = load_results(sdir, f"throughput-c{c}.json")
+            data = _load(name, f"throughput-c{c}.json")
             if data:
                 results, duration = data
                 valid = [r for r in results if not r.get("stats", {}).get("failure")]
                 tp = len(valid) / duration if duration > 0 else 0
                 throughputs.append(tp)
                 concs_available.append(c)
-        ax.plot(concs_available, throughputs, "o-", color=COLORS[name], label=name,
-                linewidth=2, markersize=7)
+        if concs_available:
+            ax.plot(concs_available, throughputs, "o-", color=COLORS[name], label=name,
+                    linewidth=2, markersize=7)
 
     ax.set_xlabel("Concurrency (number of parallel invocations)")
     ax.set_ylabel("Throughput (invocations/sec)")
     ax.set_title("Throughput Scaling (64KB state)")
-    ax.set_xscale("log")
+    ax.set_xlim(0, 105)
     ax.set_xticks(concurrencies)
-    ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+    ax.set_autoscale_on(False)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -110,8 +170,7 @@ def plot_latency_cdf():
     fig, ax = plt.subplots(figsize=(7, 4.5))
 
     for name in SYSTEMS:
-        sdir = SYSTEM_DIRS[name]
-        data = load_results(sdir, "latency-dist.json")
+        data = _load(name, "latency-dist.json")
         if not data:
             continue
         results, _ = data
@@ -139,11 +198,15 @@ def plot_latency_percentiles():
     x = np.arange(len(percentile_labels))
     width = 0.25
 
-    for i, name in enumerate(SYSTEMS):
-        sdir = SYSTEM_DIRS[name]
-        data = load_results(sdir, "latency-dist.json")
+    active = []
+    for name in SYSTEMS:
+        data = _load(name, "latency-dist.json")
         if not data:
             continue
+        active.append((name, data))
+
+    width = 0.8 / max(len(active), 1)
+    for i, (name, data) in enumerate(active):
         results, _ = data
         lats = sorted(extract_client_latencies(results))
         n = len(lats)
@@ -153,7 +216,7 @@ def plot_latency_percentiles():
     ax.set_xlabel("Percentile")
     ax.set_ylabel("Client Latency (ms)")
     ax.set_title("Client Latency Percentiles (64KB state)")
-    ax.set_xticks(x + width)
+    ax.set_xticks(x + width * max(len(active) - 1, 0) / 2)
     ax.set_xticklabels(percentile_labels)
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
@@ -165,33 +228,36 @@ def plot_latency_percentiles():
 # ── Plot 4: Write vs Read Latency Breakdown ──
 
 def plot_write_read_breakdown():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    x = np.arange(len(SYSTEMS))
-    width = 0.35
+    fig, ax = plt.subplots(figsize=(8, 4.5))
 
+    active_systems = []
     writes = []
     reads = []
     for name in SYSTEMS:
-        sdir = SYSTEM_DIRS[name]
-        data = load_results(sdir, "latency-dist.json")
+        data = _load(name, "latency-dist.json")
         if not data:
-            writes.append(0)
-            reads.append(0)
             continue
         results, _ = data
         wl = sorted(extract_write_latencies(results))
         rl = sorted(extract_read_latencies(results))
+        if not wl or not rl:
+            continue
+        active_systems.append(name)
         writes.append(wl[len(wl) // 2] / 1000)  # us -> ms
         reads.append(rl[len(rl) // 2] / 1000)
 
-    bars1 = ax.bar(x - width / 2, writes, width, label="Write P50", color=[COLORS[s] for s in SYSTEMS], alpha=0.9)
-    bars2 = ax.bar(x + width / 2, reads, width, label="Read P50", color=[COLORS[s] for s in SYSTEMS], alpha=0.5,
-                   hatch="//")
+    x = np.arange(len(active_systems))
+    width = 0.35
+
+    bars1 = ax.bar(x - width / 2, writes, width, label="Write P50",
+                   color=[COLORS[s] for s in active_systems], alpha=0.9)
+    bars2 = ax.bar(x + width / 2, reads, width, label="Read P50",
+                   color=[COLORS[s] for s in active_systems], alpha=0.5, hatch="//")
 
     ax.set_ylabel("Latency (ms)")
     ax.set_title("State Write vs Read Latency (P50, 64KB)")
     ax.set_xticks(x)
-    ax.set_xticklabels(SYSTEMS, fontsize=10)
+    ax.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=9)
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
@@ -225,19 +291,21 @@ def plot_state_size_impact():
     size_files = {1: "statesize-1kb.json", 64: "statesize-64kb.json", 512: "statesize-512kb.json"}
 
     for name in SYSTEMS:
-        sdir = SYSTEM_DIRS[name]
         write_p50s = []
         sizes_available = []
         for sz in sizes:
-            data = load_results(sdir, size_files[sz])
+            data = _load(name, size_files[sz])
             if not data:
                 continue
             results, _ = data
             wl = sorted(extract_write_latencies(results))
+            if not wl:
+                continue
             write_p50s.append(wl[len(wl) // 2] / 1000)  # us -> ms
             sizes_available.append(sz)
-        ax.plot(sizes_available, write_p50s, "o-", color=COLORS[name], label=name,
-                linewidth=2, markersize=7)
+        if sizes_available:
+            ax.plot(sizes_available, write_p50s, "o-", color=COLORS[name], label=name,
+                    linewidth=2, markersize=7)
 
     ax.set_xlabel("State Size (KB)")
     ax.set_ylabel("Write Latency P50 (ms)")
@@ -247,6 +315,9 @@ def plot_state_size_impact():
     ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
     ax.legend()
     ax.grid(True, alpha=0.3)
+    fig.text(0.5, -0.02,
+             "Lambda Durable external storage (DynamoDB) disallows state >400KB.",
+             ha="center", fontsize=8, style="italic", color="#555555")
     fig.savefig(OUT_DIR / "05_state_size_impact.png")
     plt.close(fig)
     print("  05_state_size_impact.png")
@@ -257,7 +328,11 @@ def plot_state_size_impact():
 def plot_cold_start():
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    # Lambda: extract cold starts from latency-dist data
+    # Only Lambda systems have per-invocation cold starts.
+    # Boki/Cloudburst/Restate are persistent processes — one-time infrastructure
+    # bootstrap, not comparable to per-invocation container provisioning.
+
+    # Lambda baseline: extract cold starts from latency-dist data
     lambda_cold = []
     data = load_results("lambda", "latency-dist.json")
     if data:
@@ -266,39 +341,31 @@ def plot_cold_start():
             if r.get("stats", {}).get("cold_start"):
                 lambda_cold.append(r["times"]["client"] / 1000)
 
-    # Boki: from cold start CSV
-    boki_cold = []
-    csv_path = RESULTS_DIR / "cold_start" / "cold_start_boki_run2.csv"
-    if csv_path.exists():
-        with open(csv_path) as f:
-            for line in f:
-                if line.startswith("boki,"):
-                    parts = line.strip().split(",")
-                    boki_cold.append(float(parts[4]))
-
-    # Cloudburst: executor bootstrap time (documented as ~180s for fresh instance)
-    cb_cold = [180000]  # 3 minutes for ASG bootstrap
+    # Lambda Durable: extract cold starts from run6 latency-dist
+    durable_cold = []
+    durable_data = load_results_run6("lambda-durable", "latency-dist.json")
+    if durable_data:
+        results, _ = durable_data
+        for r in results:
+            if r.get("stats", {}).get("cold_start") or r.get("output", {}).get("is_cold"):
+                durable_cold.append(r["times"]["client"] / 1000)
 
     labels = []
     values = []
     colors = []
 
     if lambda_cold:
-        labels.append("Lambda\n(container)")
+        labels.append("Lambda Baseline\n(container init)")
         values.append(np.median(lambda_cold))
         colors.append(COLORS["Lambda + Redis"])
-    if boki_cold:
-        labels.append("Boki\n(engine restart)")
-        values.append(np.median(boki_cold))
-        colors.append(COLORS["Boki"])
-    labels.append("Cloudburst\n(executor bootstrap)")
-    values.append(np.median(cb_cold))
-    colors.append(COLORS["Cloudburst + Anna"])
+    if durable_cold:
+        labels.append("Lambda Durable\n(container + SDK init)")
+        values.append(np.median(durable_cold))
+        colors.append(COLORS["Lambda Durable"])
 
-    bars = ax.bar(labels, values, color=colors, width=0.5)
+    bars = ax.bar(labels, values, color=colors, width=0.4)
     ax.set_ylabel("Cold Start Latency (ms)")
-    ax.set_title("Cold Start Latency Comparison")
-    ax.set_yscale("log")
+    ax.set_title("Per-Invocation Cold Start Latency")
     ax.grid(True, alpha=0.3, axis="y")
 
     for bar, val in zip(bars, values):
@@ -316,25 +383,10 @@ def plot_cold_start():
 def plot_cost():
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    # EC2 hourly rates (eu-north-1)
-    # Boki: c5.2xlarge ($0.388/hr infra) + 2x c5.xlarge ($0.194/hr engine) = $0.776/hr
-    # Cloudburst: t3.medium scheduler ($0.0464) + 3x t3.medium executor ($0.0464) + t3.medium anna ($0.0464) + t3.small client ($0.0232) = ~$0.255/hr
-    boki_hourly = 0.776
-    cb_hourly = 0.255
     lambda_per_invoke = 0.0000166667  # per GB-second, 256MB = 0.25GB
-
-    # Get throughput at c=10 for fair comparison
     costs = {}
-    for name, sdir, hourly in [("Boki", "boki", boki_hourly), ("Cloudburst + Anna", "cloudburst", cb_hourly)]:
-        data = load_results(sdir, "throughput-c10.json")
-        if data:
-            results, duration = data
-            valid = [r for r in results if not r.get("stats", {}).get("failure")]
-            tp = len(valid) / duration if duration > 0 else 1
-            cost_per_1k = (hourly / 3600 / tp) * 1000
-            costs[name] = cost_per_1k
 
-    # Lambda: use median execution time from latency-dist (~50ms = 0.05s at 256MB)
+    # Lambda + Redis: use median execution time from throughput-c10
     lambda_data = load_results("lambda", "throughput-c10.json")
     if lambda_data:
         results, _ = lambda_data
@@ -343,13 +395,26 @@ def plot_cost():
         lambda_cost_per_invoke = median_exec_s * 0.25 * lambda_per_invoke  # GB-seconds * price
         costs["Lambda + Redis"] = lambda_cost_per_invoke * 1000
 
+    # Lambda Durable: same pricing model, data from run6
+    lambda_dur_data = load_results_run6("lambda-durable", "throughput-c10.json")
+    if lambda_dur_data:
+        results, _ = lambda_dur_data
+        exec_times = [r["times"]["client"] / 1e6 for r in results if not r.get("stats", {}).get("failure")]
+        median_exec_s = sorted(exec_times)[len(exec_times) // 2]
+        lambda_cost_per_invoke = median_exec_s * 0.25 * lambda_per_invoke
+        costs["Lambda Durable"] = lambda_cost_per_invoke * 1000
+
+    if not costs:
+        print("  07_cost_per_invocation.png -- SKIPPED (no data)")
+        return
+
     labels = list(costs.keys())
     vals = [costs[l] for l in labels]
     bar_colors = [COLORS[l] for l in labels]
 
     bars = ax.bar(labels, vals, color=bar_colors, width=0.5)
     ax.set_ylabel("Cost per 1000 Invocations (USD)")
-    ax.set_title("Cost per Unit Work (at concurrency = 10)")
+    ax.set_title("Cost per Unit Work — Lambda Variants (concurrency = 10)")
     ax.grid(True, alpha=0.3, axis="y")
 
     for bar, val in zip(bars, vals):
@@ -690,9 +755,9 @@ def plot_throughput_scaling_cloud():
     ax.set_xlabel("Concurrency (number of parallel invocations)")
     ax.set_ylabel("Throughput (invocations/sec)")
     ax.set_title("Throughput Scaling — Cloud (EC2 in-VPC, 64KB state)")
-    ax.set_xscale("log")
+    ax.set_xlim(0, 105)
     ax.set_xticks(concurrencies)
-    ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+    ax.set_autoscale_on(False)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -710,8 +775,8 @@ def plot_latency_decomposition():
 
     CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
 
-    def decompose(results_dir, system_dir):
-        """Extract P50 decomposition from latency-dist.json."""
+    def decompose(results_dir, system_dir, percentile=50):
+        """Extract decomposition at a given percentile from latency-dist.json."""
         data_path = results_dir / system_dir / "latency-dist.json"
         if not data_path.exists():
             return None
@@ -735,117 +800,667 @@ def plot_latency_decomposition():
         rtts = sorted([r["times"]["http_startup"] * 1000 for r in warm])
 
         n = len(clients)
-        p50 = lambda vals: vals[n // 2]
+        pick = lambda vals: vals[min(int(percentile / 100 * n), n - 1)]
 
-        client_p50 = p50(clients)
-        func_p50 = p50(benchmarks)
-        rtt_p50 = p50(rtts)
-        overhead_p50 = max(0, client_p50 - func_p50 - rtt_p50)
+        client_val = pick(clients)
+        func_val = pick(benchmarks)
+        rtt_val = pick(rtts)
+        overhead_val = max(0, client_val - func_val - rtt_val)
 
         return {
-            "client": client_p50,
-            "rtt": rtt_p50,
-            "function": func_p50,
-            "overhead": overhead_p50,
+            "client": client_val,
+            "rtt": rtt_val,
+            "function": func_val,
+            "overhead": overhead_val,
             "count": n,
         }
 
-    # Collect data for both scenarios
-    scenarios = {}
-    for scenario, rdir in [("Edge", RESULTS_DIR), ("Cloud", CLOUD_DIR)]:
-        scenarios[scenario] = {}
-        for name, sdir in SYSTEM_DIRS.items():
-            d = decompose(rdir, sdir)
-            if d:
-                scenarios[scenario][name] = d
+    def _build_decomposition_plot(ax, scenarios, percentile_label, ylabel,
+                                   plot_order=None):
+        """Shared logic for decomposition stacked bar charts."""
+        if plot_order is None:
+            plot_order = ["Lambda + Redis", "Lambda Durable", "Cloudburst + Anna", "Boki", "Restate"]
 
-    if not scenarios.get("Edge") or not scenarios.get("Cloud"):
+        bar_labels = []
+        rtt_vals = []
+        overhead_vals = []
+        func_vals = []
+        bar_colors = []
+        system_groups = []  # track which system each bar belongs to
+
+        for name in plot_order:
+            group_bars = 0
+            for scenario in ["Edge", "Cloud"]:
+                d = scenarios.get(scenario, {}).get(name)
+                if d:
+                    bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario.lower()})")
+                    rtt_vals.append(d["rtt"])
+                    overhead_vals.append(d["overhead"])
+                    func_vals.append(d["function"])
+                    bar_colors.append(COLORS[name])
+                    group_bars += 1
+            system_groups.append(group_bars)
+
+        # Position bars with gaps between system groups (not fixed pairs of 2)
+        positions = []
+        pos = 0
+        bar_idx = 0
+        for group_size in system_groups:
+            for j in range(group_size):
+                positions.append(pos)
+                pos += 1
+                bar_idx += 1
+            if bar_idx < len(bar_labels):
+                pos += 0.5  # gap between system groups
+        positions = np.array(positions)
+
+        width = 0.7
+
+        ax.bar(positions, overhead_vals, width, label="Serverless overhead",
+               color=bar_colors, alpha=0.5, hatch="//", edgecolor="white", linewidth=0.5)
+        ax.bar(positions, func_vals, width, bottom=overhead_vals,
+               label="Function execution",
+               color=bar_colors, alpha=0.9, edgecolor="white", linewidth=0.5)
+        ax.bar(positions, rtt_vals, width,
+               bottom=[o + f for o, f in zip(overhead_vals, func_vals)],
+               label="Network RTT",
+               color=bar_colors, alpha=0.25, hatch="...", edgecolor="white", linewidth=0.5)
+
+        for i, (p, rtt, oh, fn) in enumerate(zip(positions, rtt_vals, overhead_vals, func_vals)):
+            total = rtt + oh + fn
+            ax.annotate(f"{total:.1f}ms", xy=(p, total), xytext=(0, 4),
+                        textcoords="offset points", ha="center", fontsize=8, fontweight="bold")
+
+        ax.set_ylabel(ylabel)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(bar_labels, fontsize=9)
+
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor="#888888", alpha=0.5, hatch="//", label="Serverless overhead"),
+            Patch(facecolor="#888888", alpha=0.9, label="Function execution"),
+            Patch(facecolor="#888888", alpha=0.25, hatch="...", label="Network RTT"),
+        ]
+        ax.legend(handles=legend_elements, loc="upper left", fontsize=9)
+        ax.grid(True, alpha=0.3, axis="y")
+
+    # ── Plot 11: P50 ──
+    scenarios_p50 = {}
+    for scenario, rdir in [("Edge", RESULTS_DIR), ("Cloud", CLOUD_DIR)]:
+        scenarios_p50[scenario] = {}
+        for name, sdir in SYSTEM_DIRS.items():
+            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
+                d = decompose(RESULTS_DIR_RUN6, sdir, percentile=50)
+            else:
+                d = decompose(rdir, sdir, percentile=50)
+            if d:
+                scenarios_p50[scenario][name] = d
+
+    if not scenarios_p50.get("Edge"):
         print("  11_latency_decomposition.png — SKIPPED (missing data)")
         return
 
-    # Build the plot
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p50, "P50",
+                              "Client Latency P50 (ms)")
+    ax.set_title("Latency Decomposition (P50): Edge (laptop) vs Cloud (EC2 in-VPC)")
+    fig.savefig(OUT_DIR / "11_latency_decomposition.png")
+    plt.close(fig)
+    print("  11_latency_decomposition.png")
+
+    # ── Plot 14: P95 ──
+    scenarios_p95 = {}
+    for scenario, rdir in [("Edge", RESULTS_DIR), ("Cloud", CLOUD_DIR)]:
+        scenarios_p95[scenario] = {}
+        for name, sdir in SYSTEM_DIRS.items():
+            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
+                d = decompose(RESULTS_DIR_RUN6, sdir, percentile=95)
+            else:
+                d = decompose(rdir, sdir, percentile=95)
+            if d:
+                scenarios_p95[scenario][name] = d
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p95, "P95",
+                              "Client Latency P95 (ms)")
+    ax.set_title("Latency Decomposition (P95): Edge (laptop) vs Cloud (EC2 in-VPC)")
+    fig.savefig(OUT_DIR / "14_latency_decomposition_p95.png")
+    plt.close(fig)
+    print("  14_latency_decomposition_p95.png")
+
+    # ── Plot 18: P50 without Lambda Durable (zoom into other systems) ──
+    no_durable = ["Lambda + Redis", "Cloudburst + Anna", "Boki", "Restate"]
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p50, "P50",
+                              "Client Latency P50 (ms)", plot_order=no_durable)
+    ax.set_title("Latency Decomposition (P50) — Excluding Lambda Durable")
+    fig.savefig(OUT_DIR / "18_latency_decomp_no_durable_p50.png")
+    plt.close(fig)
+    print("  18_latency_decomp_no_durable_p50.png")
+
+    # ── Plot 19: P95 without Lambda Durable ──
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p95, "P95",
+                              "Client Latency P95 (ms)", plot_order=no_durable)
+    ax.set_title("Latency Decomposition (P95) — Excluding Lambda Durable")
+    fig.savefig(OUT_DIR / "19_latency_decomp_no_durable_p95.png")
+    plt.close(fig)
+    print("  19_latency_decomp_no_durable_p95.png")
+
+
+# ── Plot 15: Write vs Read P95 Breakdown ──
+
+def plot_write_read_p95():
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+
+    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
+        ("Edge", RESULTS_DIR, "Edge (laptop)"),
+        ("Cloud", CLOUD_DIR, "Cloud (EC2 in-VPC)"),
+    ]):
+        ax = axes[ax_idx]
+        x = np.arange(len(SYSTEMS))
+        width = 0.35
+
+        writes = []
+        reads = []
+        for name in SYSTEMS:
+            sdir = SYSTEM_DIRS[name]
+            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
+                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
+            else:
+                path = rdir / sdir / "latency-dist.json"
+            if not path.exists():
+                writes.append(0)
+                reads.append(0)
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            invocations = list(data.get("_invocations", {}).values())
+            if not invocations:
+                writes.append(0)
+                reads.append(0)
+                continue
+            results = list(invocations[0].values())
+            wl = sorted(extract_write_latencies(results))
+            rl = sorted(extract_read_latencies(results))
+            n = len(wl)
+            p95_idx = min(int(0.95 * n), n - 1)
+            writes.append(wl[p95_idx] / 1000)
+            reads.append(rl[p95_idx] / 1000)
+
+        bars1 = ax.bar(x - width / 2, writes, width, label="Write P95",
+                       color=[COLORS[s] for s in SYSTEMS], alpha=0.9)
+        bars2 = ax.bar(x + width / 2, reads, width, label="Read P95",
+                       color=[COLORS[s] for s in SYSTEMS], alpha=0.5, hatch="//")
+
+        ax.set_title(f"State Write vs Read (P95) — {title_suffix}")
+        ax.set_xticks(x)
+        ax.set_xticklabels([SHORT_NAMES[s] for s in SYSTEMS], fontsize=10)
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3, axis="y")
+
+        for bar, raw_us in zip(bars1, [w * 1000 for w in writes]):
+            h = bar.get_height()
+            label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us"
+            ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
+                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
+        for bar, raw_us in zip(bars2, [r * 1000 for r in reads]):
+            h = bar.get_height()
+            label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us*"
+            ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
+                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
+
+    axes[0].set_ylabel("Latency (ms)")
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "15_write_read_p95.png")
+    plt.close(fig)
+    print("  15_write_read_p95.png")
+
+
+# ── Plot 16: Latency Scatter (wallclock vs latency) ──
+
+def plot_latency_scatter():
+    """Scatter: x=wallclock time, y=latency per invocation. Shows stability,
+    bimodality (cold starts), variance over time."""
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+
+    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
+        ("Edge", RESULTS_DIR, "Edge"),
+        ("Cloud", CLOUD_DIR, "Cloud"),
+    ]):
+        ax = axes[ax_idx]
+        for name in SYSTEMS:
+            sdir = SYSTEM_DIRS[name]
+            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
+                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
+            else:
+                path = rdir / sdir / "latency-dist.json"
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            invocations = list(data.get("_invocations", {}).values())
+            if not invocations:
+                continue
+            results = list(invocations[0].values())
+
+            # Extract wallclock begin + client latency
+            points = []
+            for r in results:
+                begin = r.get("output", {}).get("begin", 0)
+                client_ms = r["times"]["client"] / 1000
+                cold = r.get("stats", {}).get("cold_start", False)
+                if begin > 0:
+                    points.append((begin, client_ms, cold))
+
+            if not points:
+                continue
+
+            t0 = min(p[0] for p in points)
+            elapsed = [(p[0] - t0) for p in points]
+            lats = [p[1] for p in points]
+            colds = [p[2] for p in points]
+
+            # Filter to first 10 seconds only
+            elapsed, lats, colds = zip(*[
+                (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= 10
+            ]) if any(t <= 10 for t in elapsed) else ([], [], [])
+
+            # Warm points
+            warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
+            warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
+            ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
+
+            # Cold points (if any)
+            cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
+            cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
+            if cold_t:
+                ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
+                          marker="x", linewidths=1.5, label=f"{name} (cold)")
+
+        ax.set_xlabel("Elapsed time (s)")
+        ax.set_ylabel("Client Latency (ms)")
+        ax.set_title(f"Latency over Time — {title_suffix}")
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=1, top=10000)
+        ax.legend(fontsize=7, loc="upper right")
+        ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.text(0.5, -0.02,
+             "Boki and Lambda complete 1000 invocations before the 10s cutoff.",
+             ha="center", fontsize=8, style="italic", color="#555555")
+    fig.savefig(OUT_DIR / "16_latency_scatter_10s.png")
+    plt.close(fig)
+    print("  16_latency_scatter_10s.png")
+
+
+def _plot_scatter_subset(subset_systems, filename, title_tag, cutoff_s=10):
+    """Scatter plot for a subset of systems."""
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+
+    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
+        ("Edge", RESULTS_DIR, "Edge"),
+        ("Cloud", CLOUD_DIR, "Cloud"),
+    ]):
+        ax = axes[ax_idx]
+        for name in subset_systems:
+            sdir = SYSTEM_DIRS[name]
+            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
+                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
+            else:
+                path = rdir / sdir / "latency-dist.json"
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            invocations = list(data.get("_invocations", {}).values())
+            if not invocations:
+                continue
+            results = list(invocations[0].values())
+
+            points = []
+            for r in results:
+                begin = r.get("output", {}).get("begin", 0)
+                client_ms = r["times"]["client"] / 1000
+                cold = r.get("stats", {}).get("cold_start", False)
+                if begin > 0:
+                    points.append((begin, client_ms, cold))
+
+            if not points:
+                continue
+
+            t0 = min(p[0] for p in points)
+            elapsed = [(p[0] - t0) for p in points]
+            lats = [p[1] for p in points]
+            colds = [p[2] for p in points]
+
+            elapsed, lats, colds = zip(*[
+                (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= cutoff_s
+            ]) if any(t <= cutoff_s for t in elapsed) else ([], [], [])
+
+            warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
+            warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
+            ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
+
+            cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
+            cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
+            if cold_t:
+                ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
+                          marker="x", linewidths=1.5, label=f"{name} (cold)")
+
+        ax.set_xlabel("Elapsed time (s)")
+        ax.set_ylabel("Client Latency (ms)")
+        ax.set_title(f"Latency over Time — {title_suffix}")
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=1, top=10000)
+        ax.legend(fontsize=8, loc="upper right")
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(title_tag, fontsize=13, y=1.02)
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / filename)
+    plt.close(fig)
+    print(f"  {filename}")
+
+
+def plot_scatter_boki_lambda():
+    _plot_scatter_subset(
+        ["Lambda + Redis", "Boki"],
+        "22_scatter_boki_lambda.png",
+        "Latency Scatter — Lambda Baseline & Boki")
+
+
+def plot_scatter_others():
+    _plot_scatter_subset(
+        ["Lambda Durable", "Cloudburst + Anna", "Restate"],
+        "23_scatter_durable_cloudburst_restate.png",
+        "Latency Scatter — Lambda Durable, Cloudburst, Restate",
+        cutoff_s=15)
+
+
+# ── Plot 17: Normalized Latency Distribution (KDE) ──
+
+def plot_normalized_distribution():
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+
+    for name in SYSTEMS:
+        data = _load(name, "latency-dist.json")
+        if not data:
+            continue
+        results, _ = data
+        lats = np.array(extract_client_latencies(results))
+        if len(lats) < 2:
+            continue
+
+        # Use histogram with density=True to produce a normalized distribution
+        bins = np.linspace(lats.min(), np.percentile(lats, 99.5), 200)
+        counts, bin_edges = np.histogram(lats, bins=bins, density=True)
+        # Normalize peak to 1.0
+        if counts.max() > 0:
+            counts = counts / counts.max()
+        centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        ax.plot(centers, counts, color=COLORS[name], label=name, linewidth=1.5, alpha=0.85)
+
+    ax.set_xlabel("Client Latency (ms)")
+    ax.set_ylabel("Normalized Density (0–1)")
+    ax.set_title("Normalized Latency Distribution")
+    ax.set_ylim(0, 1.05)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.savefig(OUT_DIR / "17_normalized_distribution.png")
+    plt.close(fig)
+    print("  17_normalized_distribution.png")
+
+
+# ── Main ──
+
+# ── Plot 20: Detailed Latency Decomposition (Lambda, Boki, Restate) ──
+
+def plot_detailed_decomposition():
+    """5-component stacked bar: Network, System Overhead, Write, Read, Compute.
+    Lambda/Boki/Restate only — excludes Durable and Cloudburst (too large, separate plot)."""
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+
+    systems = ["Lambda + Redis", "Boki", "Restate"]
+
+    def decompose_detailed(results_dir, system_dir):
+        data_path = results_dir / system_dir / "latency-dist.json"
+        if not data_path.exists():
+            return None
+        with open(data_path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            return None
+        results = list(invocations[0].values())
+        warm = [r for r in results if _is_warm(r)]
+        if not warm:
+            return None
+        n = len(warm)
+        pick = lambda vals, pct: sorted(vals)[min(int(pct / 100 * n), n - 1)]
+
+        clients = [r["times"]["client"] / 1000 for r in warm]
+        rtts = [r["times"]["http_startup"] * 1000 for r in warm]
+        first_bytes = [r["times"]["http_first_byte_return"] * 1000 for r in warm]
+        benchmarks = [r["times"]["benchmark"] / 1000 for r in warm]
+        writes = [r["output"]["measurement"]["state_write_lat_us"] / 1000 for r in warm]
+        reads = [r["output"]["measurement"]["state_read_lat_us"] / 1000 for r in warm]
+
+        c = pick(clients, 50)
+        rtt = pick(rtts, 50)
+        fb = pick(first_bytes, 50)
+        b = pick(benchmarks, 50)
+        w = pick(writes, 50)
+        rd = pick(reads, 50)
+
+        overhead = max(0, fb - rtt - b)
+        compute = max(0, b - w - rd)
+        post = max(0, c - fb)
+
+        return {"network": rtt + post, "overhead": overhead, "write": w, "read": rd, "compute": compute, "total": c}
+
     fig, ax = plt.subplots(figsize=(10, 5.5))
 
-    # Order: Lambda, Cloudburst, Boki (worst→best in cloud, Boki improvement stands out at the end)
-    plot_order = ["Lambda + Redis", "Cloudburst + Anna", "Boki"]
-
     bar_labels = []
-    rtt_vals = []
-    overhead_vals = []
-    func_vals = []
+    net_vals, oh_vals, write_vals, read_vals, compute_vals = [], [], [], [], []
     bar_colors = []
-    bar_alphas = []
 
-    for name in plot_order:
-        for scenario in ["Edge", "Cloud"]:
-            d = scenarios.get(scenario, {}).get(name)
+    for name in systems:
+        sdir = SYSTEM_DIRS[name]
+        for scenario, rdir in [("edge", RESULTS_DIR), ("cloud", CLOUD_DIR)]:
+            if name in ("Restate",) and scenario == "edge":
+                d = decompose_detailed(RESULTS_DIR_RUN6, sdir)
+            elif name in ("Restate",):
+                d = decompose_detailed(rdir, sdir)
+            else:
+                d = decompose_detailed(rdir, sdir)
             if d:
-                bar_labels.append(f"{name.split(' +')[0].split(' ')[0]}\n({scenario.lower()})")
-                rtt_vals.append(d["rtt"])
-                overhead_vals.append(d["overhead"])
-                func_vals.append(d["function"])
+                bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario})")
+                net_vals.append(d["network"])
+                oh_vals.append(d["overhead"])
+                write_vals.append(d["write"])
+                read_vals.append(d["read"])
+                compute_vals.append(d["compute"])
                 bar_colors.append(COLORS[name])
-                bar_alphas.append(1.0 if scenario == "Edge" else 0.6)
 
-    x = np.arange(len(bar_labels))
-    # Add gaps between system pairs
+    # Position with gaps between systems
     positions = []
     pos = 0
     for i in range(len(bar_labels)):
         positions.append(pos)
         pos += 1
         if (i + 1) % 2 == 0 and i < len(bar_labels) - 1:
-            pos += 0.5  # gap between systems
+            pos += 0.5
     positions = np.array(positions)
-
     width = 0.7
 
-    # Stacked bars: function (bottom), overhead (middle), rtt (top)
-    bars_func = ax.bar(positions, func_vals, width, label="Function execution",
-                       color=[c for c in bar_colors], alpha=0.9, edgecolor="white", linewidth=0.5)
-    bars_overhead = ax.bar(positions, overhead_vals, width, bottom=func_vals,
-                          label="Serverless overhead",
-                          color=[c for c in bar_colors], alpha=0.5, hatch="//",
-                          edgecolor="white", linewidth=0.5)
-    bars_rtt = ax.bar(positions, rtt_vals, width,
-                      bottom=[f + o for f, o in zip(func_vals, overhead_vals)],
-                      label="Network RTT",
-                      color=[c for c in bar_colors], alpha=0.25, hatch="...",
-                      edgecolor="white", linewidth=0.5)
+    # Stack: overhead (bottom) → write → read → compute → network (top)
+    ax.bar(positions, oh_vals, width, label="System Overhead",
+           color=bar_colors, alpha=0.5, hatch="//", edgecolor="white", linewidth=0.5)
+    ax.bar(positions, write_vals, width, bottom=oh_vals, label="State Write",
+           color=bar_colors, alpha=0.7, edgecolor="white", linewidth=0.5)
+    bottom2 = [o + w for o, w in zip(oh_vals, write_vals)]
+    ax.bar(positions, read_vals, width, bottom=bottom2, label="State Read",
+           color=bar_colors, alpha=0.9, edgecolor="white", linewidth=0.5)
+    bottom3 = [b + r for b, r in zip(bottom2, read_vals)]
+    ax.bar(positions, compute_vals, width, bottom=bottom3, label="Compute",
+           color=bar_colors, alpha=0.4, edgecolor="white", linewidth=0.5)
+    bottom4 = [b + c for b, c in zip(bottom3, compute_vals)]
+    ax.bar(positions, net_vals, width, bottom=bottom4, label="Network Latency",
+           color=bar_colors, alpha=0.25, hatch="...", edgecolor="white", linewidth=0.5)
 
-    # Value labels on top
-    for i, (pos, rtt, oh, fn) in enumerate(zip(positions, rtt_vals, overhead_vals, func_vals)):
-        total = rtt + oh + fn
-        ax.annotate(f"{total:.1f}ms", xy=(pos, total), xytext=(0, 4),
+    for i, p in enumerate(positions):
+        total = net_vals[i] + oh_vals[i] + write_vals[i] + read_vals[i] + compute_vals[i]
+        ax.annotate(f"{total:.1f}ms", xy=(p, total), xytext=(0, 4),
                     textcoords="offset points", ha="center", fontsize=8, fontweight="bold")
 
     ax.set_ylabel("Client Latency P50 (ms)")
-    ax.set_title("Latency Decomposition: Edge (laptop) vs Cloud (EC2 in-VPC)")
+    ax.set_title("Detailed Latency Decomposition (P50) — Lambda, Boki, Restate")
     ax.set_xticks(positions)
     ax.set_xticklabels(bar_labels, fontsize=9)
 
-    # Custom legend (since colors vary per system, use pattern-only legend)
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor="#888888", alpha=0.9, label="Function execution"),
-        Patch(facecolor="#888888", alpha=0.5, hatch="//", label="Serverless overhead"),
-        Patch(facecolor="#888888", alpha=0.25, hatch="...", label="Network RTT"),
+        Patch(facecolor="#888888", alpha=0.4, label="Compute"),
+        Patch(facecolor="#888888", alpha=0.7, label="State Write"),
+        Patch(facecolor="#888888", alpha=0.9, label="State Read"),
+        Patch(facecolor="#888888", alpha=0.5, hatch="//", label="System Overhead"),
+        Patch(facecolor="#888888", alpha=0.25, hatch="...", label="Network Latency"),
     ]
-    ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
+    ax.legend(handles=legend_elements, loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3, axis="y")
 
-    ax.annotate(
-        "Edge = laptop over internet. Cloud = EC2 in same VPC (private IP) or region (API Gateway).\n"
-        "Network RTT = pycurl PRETRANSFER_TIME (TCP handshake, incl. TLS for Lambda).",
-        xy=(0.5, -0.18), xycoords="axes fraction", ha="center", fontsize=7,
-        style="italic", color="gray")
-
-    fig.savefig(OUT_DIR / "11_latency_decomposition.png")
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "20_detailed_decomposition.png")
     plt.close(fig)
-    print("  11_latency_decomposition.png")
+    print("  20_detailed_decomposition.png")
 
 
-# ── Main ──
+# ── Plot 21: Detailed Decomposition (Lambda Durable, Cloudburst) ──
+
+def plot_detailed_decomposition_heavy():
+    """Same 5-component decomposition for Durable + Cloudburst (high-overhead systems)."""
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+
+    systems = ["Lambda Durable", "Cloudburst + Anna"]
+
+    def decompose_detailed(results_dir, system_dir):
+        data_path = results_dir / system_dir / "latency-dist.json"
+        if not data_path.exists():
+            return None
+        with open(data_path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            return None
+        results = list(invocations[0].values())
+        warm = [r for r in results if _is_warm(r)]
+        if not warm:
+            return None
+        n = len(warm)
+        pick = lambda vals, pct: sorted(vals)[min(int(pct / 100 * n), n - 1)]
+
+        clients = [r["times"]["client"] / 1000 for r in warm]
+        rtts = [r["times"]["http_startup"] * 1000 for r in warm]
+        first_bytes = [r["times"]["http_first_byte_return"] * 1000 for r in warm]
+        benchmarks = [r["times"]["benchmark"] / 1000 for r in warm]
+        writes = [r["output"]["measurement"]["state_write_lat_us"] / 1000 for r in warm]
+        reads = [r["output"]["measurement"]["state_read_lat_us"] / 1000 for r in warm]
+
+        c = pick(clients, 50)
+        rtt = pick(rtts, 50)
+        fb = pick(first_bytes, 50)
+        b = pick(benchmarks, 50)
+        w = pick(writes, 50)
+        rd = pick(reads, 50)
+
+        overhead = max(0, fb - rtt - b)
+        compute = max(0, b - w - rd)
+        post = max(0, c - fb)
+
+        return {"network": rtt + post, "overhead": overhead, "write": w, "read": rd, "compute": compute, "total": c}
+
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+
+    bar_labels = []
+    net_vals, oh_vals, write_vals, read_vals, compute_vals = [], [], [], [], []
+    bar_colors = []
+
+    for name in systems:
+        sdir = SYSTEM_DIRS[name]
+        for scenario, rdir in [("edge", RESULTS_DIR), ("cloud", CLOUD_DIR)]:
+            if name == "Lambda Durable" and scenario == "edge":
+                d = decompose_detailed(RESULTS_DIR_RUN6, sdir)
+            elif name == "Lambda Durable":
+                d = decompose_detailed(rdir, sdir)
+            else:
+                d = decompose_detailed(rdir, sdir)
+            if d:
+                bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario})")
+                net_vals.append(d["network"])
+                oh_vals.append(d["overhead"])
+                write_vals.append(d["write"])
+                read_vals.append(d["read"])
+                compute_vals.append(d["compute"])
+                bar_colors.append(COLORS[name])
+
+    positions = []
+    pos = 0
+    for i in range(len(bar_labels)):
+        positions.append(pos)
+        pos += 1
+        if (i + 1) % 2 == 0 and i < len(bar_labels) - 1:
+            pos += 0.5
+    positions = np.array(positions)
+    width = 0.7
+
+    ax.bar(positions, oh_vals, width, label="System Overhead",
+           color=bar_colors, alpha=0.5, hatch="//", edgecolor="white", linewidth=0.5)
+    ax.bar(positions, write_vals, width, bottom=oh_vals, label="State Write",
+           color=bar_colors, alpha=0.7, edgecolor="white", linewidth=0.5)
+    bottom2 = [o + w for o, w in zip(oh_vals, write_vals)]
+    ax.bar(positions, read_vals, width, bottom=bottom2, label="State Read",
+           color=bar_colors, alpha=0.9, edgecolor="white", linewidth=0.5)
+    bottom3 = [b + r for b, r in zip(bottom2, read_vals)]
+    ax.bar(positions, compute_vals, width, bottom=bottom3, label="Compute",
+           color=bar_colors, alpha=0.4, edgecolor="white", linewidth=0.5)
+    bottom4 = [b + c for b, c in zip(bottom3, compute_vals)]
+    ax.bar(positions, net_vals, width, bottom=bottom4, label="Network Latency",
+           color=bar_colors, alpha=0.25, hatch="...", edgecolor="white", linewidth=0.5)
+
+    for i, p in enumerate(positions):
+        total = net_vals[i] + oh_vals[i] + write_vals[i] + read_vals[i] + compute_vals[i]
+        ax.annotate(f"{total:.1f}ms", xy=(p, total), xytext=(0, 4),
+                    textcoords="offset points", ha="center", fontsize=8, fontweight="bold")
+
+    ax.set_ylabel("Client Latency P50 (ms)")
+    ax.set_title("Detailed Latency Decomposition (P50) — Lambda Durable, Cloudburst")
+    ax.set_xticks(positions)
+    ax.set_xticklabels(bar_labels, fontsize=9)
+
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="#888888", alpha=0.4, label="Compute"),
+        Patch(facecolor="#888888", alpha=0.7, label="State Write"),
+        Patch(facecolor="#888888", alpha=0.9, label="State Read"),
+        Patch(facecolor="#888888", alpha=0.5, hatch="//", label="System Overhead"),
+        Patch(facecolor="#888888", alpha=0.25, hatch="...", label="Network Latency"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "21_detailed_decomposition_heavy.png")
+    plt.close(fig)
+    print("  21_detailed_decomposition_heavy.png")
+
 
 if __name__ == "__main__":
     print(f"Generating plots from {RESULTS_DIR}")
@@ -864,5 +1479,12 @@ if __name__ == "__main__":
     plot_latency_decomposition()
     plot_throughput_scaling_cloud()
     plot_latency_cdf_cloud()
+    plot_write_read_p95()
+    plot_latency_scatter()
+    plot_normalized_distribution()
+    plot_detailed_decomposition()
+    plot_detailed_decomposition_heavy()
+    plot_scatter_boki_lambda()
+    plot_scatter_others()
 
     print(f"\nDone. {len(list(OUT_DIR.glob('*.png')))} plots generated.")

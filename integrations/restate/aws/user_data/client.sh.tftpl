@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+exec > >(tee /var/log/user-data.log) 2>&1
+
+echo "=== Restate benchmark client bootstrap ==="
+
+# --- System packages ---
+apt-get update -y
+apt-get install -y git python3 python3-pip python3-dev libcurl4-openssl-dev gcc jq
+
+# --- Install benchmark deps ---
+pip3 install pycurl numpy
+
+# --- Clone benchmark repo ---
+cd /home/ubuntu
+git clone https://github.com/GeorgZs/master-sebs.git || true
+mkdir -p /home/ubuntu/master-sebs/results/cloud/restate
+
+# --- Environment file ---
+cat > /home/ubuntu/sebs-env.sh <<'ENVEOF'
+export RESTATE_SERVER=${server_private_ip}
+export RESTATE_INGRESS=http://${server_private_ip}:8080
+export RESTATE_ADMIN=http://${server_private_ip}:9070
+export RESULTS_DIR=/home/ubuntu/master-sebs/results/cloud/restate
+ENVEOF
+
+chown -R ubuntu:ubuntu /home/ubuntu/master-sebs /home/ubuntu/sebs-env.sh
+
+echo "=== Restate client ready ==="
+echo "SEBS_CLIENT_READY" > /tmp/sebs-client-ready
