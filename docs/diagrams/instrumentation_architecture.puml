@@ -8,10 +8,13 @@ package "Forked Repos" {
 
 package "Runtime Deployment" {
   component baselineRuntime as "Baseline API Runtime"
+  component durableRuntime as "Lambda Durable Runtime"
   component bokiRuntime as "Boki Runtime"
   component cbScheduler as "Cloudburst Scheduler"
   component cbExecutor as "Cloudburst Executor"
   component annaKvs as "Anna KVS"
+  component restateServer as "Restate Server"
+  component restateHandler as "Restate Handler"
 }
 
 package "Per-run Sidecars" {
@@ -23,27 +26,37 @@ package "Per-run Sidecars" {
 package "master-sebs" {
   component benchmarks as "Benchmarks"
   component baselineBench as "benchmark: baseline path"
+  component durableBench as "benchmark: lambda-durable path"
   component bokiBench as "benchmark: boki-shared-log path"
   component cloudburstBench as "benchmark: cloudburst-stateful path"
+  component restateBench as "benchmark: restate-stateful path"
   component runBaseline as "run_baseline_bench.sh"
+  component runDurable as "run_durable_bench.sh"
   component runBoki as "run_boki_bench.sh"
   component runCb as "run_cloudburst_bench.sh"
+  component runRestate as "run_restate_bench.sh"
   component collectHttp as "collect_http_run.py"
   component collectCb as "collect_cloudburst_results.py"
   component eventMetrics as "event_metrics.py"
   component baselineNorm as "baseline_to_common_schema.py"
+  component durableNorm as "durable_to_common_schema.py"
   component bokiNorm as "boki_to_common_schema.py"
   component cbNorm as "cloudburst_to_common_schema.py"
+  component restateNorm as "restate_to_common_schema.py"
   database normalized as "Normalized JSONL/CSV"
 }
 
 benchmarks --> baselineBench
+benchmarks --> durableBench
 benchmarks --> bokiBench
 benchmarks --> cloudburstBench
+benchmarks --> restateBench
 
 baselineBench --> runBaseline
+durableBench --> runDurable
 bokiBench --> runBoki
 cloudburstBench --> runCb
+restateBench --> runRestate
 
 bokiFork --> bokiRuntime
 cbFork --> cbScheduler
@@ -51,15 +64,20 @@ cbFork --> cbExecutor
 cbFork --> annaKvs
 
 baselineRuntime --> eventsFile
+durableRuntime --> eventsFile
 bokiRuntime --> eventsFile
 cbScheduler --> eventsFile
 cbExecutor --> eventsFile
 annaKvs --> eventsFile
+restateServer --> eventsFile
+restateHandler --> eventsFile
 cbScheduler --> telemetryFile
 cbScheduler --> extraMetricsFile
 
 runBaseline --> collectHttp
+runDurable --> collectHttp
 runBoki --> collectHttp
+runRestate --> collectHttp
 runCb --> collectCb
 
 eventsFile --> collectHttp
@@ -72,10 +90,14 @@ collectHttp --> eventMetrics
 collectCb --> eventMetrics
 
 collectHttp --> baselineNorm
+collectHttp --> durableNorm
 collectHttp --> bokiNorm
+collectHttp --> restateNorm
 collectCb --> cbNorm
 baselineNorm --> normalized
+durableNorm --> normalized
 bokiNorm --> normalized
 cbNorm --> normalized
+restateNorm --> normalized
 
 @enduml

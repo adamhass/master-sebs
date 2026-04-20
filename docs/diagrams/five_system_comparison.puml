@@ -1,0 +1,92 @@
+@startuml five_system_comparison
+title Stateful Serverless — Five-System Architecture Comparison
+
+skinparam rectangle {
+    BackgroundColor<<aws>> #FFF8E1
+    BackgroundColor<<durable>> #FFEBEE
+    BackgroundColor<<cloudburst>> #E8F5E9
+    BackgroundColor<<boki>> #E3F2FD
+    BackgroundColor<<restate>> #F3E5F5
+}
+
+package "Lambda Baseline: Lambda + ElastiCache Redis" <<aws>> {
+    component "API Gateway\n(HTTP)" as apigw
+    component "AWS Lambda\n(Python 3.11)" as lambda
+    database "ElastiCache Redis\n(cache.t4g.micro)" as redis
+
+    apigw -right-> lambda : "HTTP POST"
+    lambda -right-> redis : "SET/GET\n(redis-py pool)"
+}
+
+package "Lambda Durable: Lambda + DynamoDB" <<durable>> {
+    component "API Gateway\n(HTTP, /durable)" as apigw_d
+    component "AWS Lambda\n(Durable Execution)" as lambda_d
+    database "DynamoDB\n(PAY_PER_REQUEST)" as dynamodb
+
+    apigw_d -right-> lambda_d : "HTTP POST"
+    lambda_d -right-> dynamodb : "PutItem/GetItem\n(@durable_step)"
+}
+
+package "Boki (shared log)" <<boki>> {
+    component "HTTP Gateway" as boki_gw
+    component "Engine + Workers\n(Go binary)" as boki_engine
+    database "Shared Log\n(Sequencer + Storage)" as boki_log
+    component "ZooKeeper" as boki_zk
+
+    boki_gw -right-> boki_engine : "IPC"
+    boki_engine -right-> boki_log : "slib API\n(append/read)"
+    boki_engine .right.> boki_zk : "coordination"
+}
+
+package "Cloudburst + Anna KVS" <<cloudburst>> {
+    component "HTTP Gateway\n(cloudburst_http_gateway.py)" as cb_gw
+    component "Scheduler\n(ZMQ)" as cb_sched
+    component "Executor(s)\n(ZMQ)" as cb_exec
+    database "Anna KVS\n(Docker, memory)" as cb_anna
+
+    cb_gw -right-> cb_sched : "ZMQ call_dag"
+    cb_sched -right-> cb_exec : "pin/exec"
+    cb_exec -right-> cb_anna : "put/get\n(TCP 6450)"
+}
+
+package "Restate (durable execution)" <<restate>> {
+    component "Restate Server\n(3-node cluster)" as restate_srv
+    component "Handler\n(Hypercorn ASGI)" as restate_handler
+    database "Bifrost Journal\n(replicated log)" as restate_log
+
+    restate_srv -right-> restate_handler : "HTTP invoke"
+    restate_handler -right-> restate_srv : "ctx.set/get"
+    restate_srv -down-> restate_log : "journal append\n(replication factor 2)"
+}
+
+note bottom of redis
+    **State model:** External KV (network)
+    **Consistency:** Strong (single-item)
+    **Managed:** Yes (AWS)
+end note
+
+note bottom of dynamodb
+    **State model:** External KV + checkpoint
+    **Consistency:** Strong (single-item)
+    **Managed:** Yes (AWS, serverless)
+end note
+
+note bottom of boki_log
+    **State model:** Shared append-only log
+    **Consistency:** Linearizable
+    **Managed:** No (self-hosted EC2)
+end note
+
+note bottom of cb_anna
+    **State model:** Co-located cache + KVS
+    **Consistency:** Strong eventual (CRDT)
+    **Managed:** No (self-hosted EC2)
+end note
+
+note bottom of restate_log
+    **State model:** Embedded KV (journal-derived)
+    **Consistency:** Sequential (per-key)
+    **Managed:** No (self-hosted EC2)
+end note
+
+@enduml

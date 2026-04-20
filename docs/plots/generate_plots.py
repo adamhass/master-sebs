@@ -159,6 +159,9 @@ def plot_throughput_scaling():
     ax.legend()
     ax.grid(True, alpha=0.3)
 
+    fig.text(0.5, -0.02,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
     fig.savefig(OUT_DIR / "01_throughput_scaling.png")
     plt.close(fig)
     print("  01_throughput_scaling.png")
@@ -184,6 +187,9 @@ def plot_latency_cdf():
     ax.set_ylim(0, 100)
     ax.legend()
     ax.grid(True, alpha=0.3)
+    fig.text(0.5, -0.02,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
     fig.savefig(OUT_DIR / "02_latency_cdf.png")
     plt.close(fig)
     print("  02_latency_cdf.png")
@@ -716,6 +722,9 @@ def plot_latency_cdf_cloud():
     ax.set_ylim(0, 100)
     ax.legend()
     ax.grid(True, alpha=0.3)
+    fig.text(0.5, -0.02,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
     fig.savefig(OUT_DIR / "13_latency_cdf_cloud.png")
     plt.close(fig)
     print("  13_latency_cdf_cloud.png")
@@ -761,6 +770,9 @@ def plot_throughput_scaling_cloud():
     ax.legend()
     ax.grid(True, alpha=0.3)
 
+    fig.text(0.5, -0.02,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
     fig.savefig(OUT_DIR / "12_throughput_scaling_cloud.png")
     plt.close(fig)
     print("  12_throughput_scaling_cloud.png")
@@ -1185,6 +1197,214 @@ def plot_scatter_others():
         cutoff_s=15)
 
 
+# ── Plot 24: Temporal Variance (5 rounds, error bars) ──
+
+def plot_temporal_variance():
+    """P50 latency across 5 temporal rounds with min-max error bars.
+    Shows system stability over time (10-hour span, 2hr intervals)."""
+    TEMPORAL_DIR = SCRIPT_DIR.parent.parent / "results" / "temporal"
+
+    system_files = {
+        "Lambda + Redis": "lambda-latency-dist.json",
+        "Lambda Durable": "durable-latency-dist.json",
+        "Boki": "boki-latency-dist.json",
+        "Cloudburst + Anna": "cloudburst-latency-dist.json",
+        "Restate": "restate-latency-dist.json",
+    }
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: P50 per round (scatter with lines)
+    ax = axes[0]
+    for name, fname in system_files.items():
+        round_p50s = []
+        round_nums = []
+        for r in range(1, 6):
+            path = TEMPORAL_DIR / f"round_{r}" / fname
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            inv = list(list(data.get("_invocations", {}).values())[0].values())
+            warm = [i for i in inv if _is_warm(i)]
+            if len(warm) < 10:
+                continue
+            lats = sorted([i["times"]["client"] / 1000 for i in warm])
+            p50 = lats[len(lats) // 2]
+            round_p50s.append(p50)
+            round_nums.append(r)
+        if round_p50s:
+            ax.plot(round_nums, round_p50s, "o-", color=COLORS[name], label=name,
+                    linewidth=2, markersize=8)
+
+    ax.set_xlabel("Round (2-hour intervals)")
+    ax.set_ylabel("Client Latency P50 (ms)")
+    ax.set_title("P50 Latency Stability Over Time")
+    ax.set_xticks([1, 2, 3, 4, 5])
+    ax.set_xticklabels(["R1\n19:27", "R2\n21:28", "R3\n23:29", "R4\n01:31", "R5\n03:32"])
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    # Right: Aggregated bar with min-max error bars
+    ax2 = axes[1]
+    active_systems = []
+    means = []
+    stds = []
+    mins = []
+    maxs = []
+    colors = []
+
+    for name, fname in system_files.items():
+        all_p50s = []
+        for r in range(1, 6):
+            path = TEMPORAL_DIR / f"round_{r}" / fname
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            inv = list(list(data.get("_invocations", {}).values())[0].values())
+            warm = [i for i in inv if _is_warm(i)]
+            if len(warm) < 10:
+                continue
+            lats = sorted([i["times"]["client"] / 1000 for i in warm])
+            all_p50s.append(lats[len(lats) // 2])
+
+        if len(all_p50s) >= 2:
+            active_systems.append(name)
+            mean = np.mean(all_p50s)
+            means.append(mean)
+            stds.append(np.std(all_p50s))
+            mins.append(mean - min(all_p50s))
+            maxs.append(max(all_p50s) - mean)
+            colors.append(COLORS[name])
+
+    x = np.arange(len(active_systems))
+    bars = ax2.bar(x, means, color=colors, alpha=0.8, width=0.5)
+    ax2.errorbar(x, means, yerr=[mins, maxs], fmt="none", ecolor="black",
+                 capsize=6, capthick=2, linewidth=2)
+
+    for i, (bar, m, s) in enumerate(zip(bars, means, stds)):
+        ax2.annotate(f"{m:.1f}ms\n\u00b1{s:.1f}", xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    xytext=(0, 8), textcoords="offset points", ha="center", fontsize=9)
+
+    ax2.set_ylabel("Mean P50 Latency (ms)")
+    ax2.set_title("Aggregated P50 with Min-Max Error Bars")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=10)
+    ax2.grid(True, alpha=0.3, axis="y")
+
+    fig.suptitle("Temporal Variance — 5 Rounds Over 10 Hours (cloud, c=10, 64KB)", fontsize=13)
+    fig.tight_layout()
+    fig.text(0.5, -0.01,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
+    fig.savefig(OUT_DIR / "24_temporal_variance.png")
+    plt.close(fig)
+    print("  24_temporal_variance.png")
+
+
+# ── Plot 25: Temporal Variance without Lambda Durable ──
+
+def plot_temporal_variance_no_durable():
+    """Same as plot 24 but excludes Lambda Durable for better Y-axis resolution."""
+    TEMPORAL_DIR = SCRIPT_DIR.parent.parent / "results" / "temporal"
+
+    system_files = {
+        "Lambda + Redis": "lambda-latency-dist.json",
+        "Boki": "boki-latency-dist.json",
+        "Cloudburst + Anna": "cloudburst-latency-dist.json",
+        "Restate": "restate-latency-dist.json",
+    }
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax = axes[0]
+    for name, fname in system_files.items():
+        round_p50s = []
+        round_nums = []
+        for r in range(1, 6):
+            path = TEMPORAL_DIR / f"round_{r}" / fname
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            inv = list(list(data.get("_invocations", {}).values())[0].values())
+            warm = [i for i in inv if _is_warm(i)]
+            if len(warm) < 10:
+                continue
+            lats = sorted([i["times"]["client"] / 1000 for i in warm])
+            p50 = lats[len(lats) // 2]
+            round_p50s.append(p50)
+            round_nums.append(r)
+        if round_p50s:
+            ax.plot(round_nums, round_p50s, "o-", color=COLORS[name], label=name,
+                    linewidth=2, markersize=8)
+
+    ax.set_xlabel("Round (2-hour intervals)")
+    ax.set_ylabel("Client Latency P50 (ms)")
+    ax.set_title("P50 Latency Stability Over Time")
+    ax.set_xticks([1, 2, 3, 4, 5])
+    ax.set_xticklabels(["R1\n19:27", "R2\n21:28", "R3\n23:29", "R4\n01:31", "R5\n03:32"])
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    ax2 = axes[1]
+    active_systems = []
+    means = []
+    stds = []
+    mins = []
+    maxs = []
+    colors = []
+
+    for name, fname in system_files.items():
+        all_p50s = []
+        for r in range(1, 6):
+            path = TEMPORAL_DIR / f"round_{r}" / fname
+            if not path.exists():
+                continue
+            with open(path) as f:
+                data = json.load(f)
+            inv = list(list(data.get("_invocations", {}).values())[0].values())
+            warm = [i for i in inv if _is_warm(i)]
+            if len(warm) < 10:
+                continue
+            lats = sorted([i["times"]["client"] / 1000 for i in warm])
+            all_p50s.append(lats[len(lats) // 2])
+
+        if len(all_p50s) >= 2:
+            active_systems.append(name)
+            mean = np.mean(all_p50s)
+            means.append(mean)
+            stds.append(np.std(all_p50s))
+            mins.append(mean - min(all_p50s))
+            maxs.append(max(all_p50s) - mean)
+            colors.append(COLORS[name])
+
+    x = np.arange(len(active_systems))
+    bars = ax2.bar(x, means, color=colors, alpha=0.8, width=0.5)
+    ax2.errorbar(x, means, yerr=[mins, maxs], fmt="none", ecolor="black",
+                 capsize=6, capthick=2, linewidth=2)
+
+    for i, (bar, m, s) in enumerate(zip(bars, means, stds)):
+        ax2.annotate(f"{m:.1f}ms\n\u00b1{s:.1f}", xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                    xytext=(0, 8), textcoords="offset points", ha="center", fontsize=9)
+
+    ax2.set_ylabel("Mean P50 Latency (ms)")
+    ax2.set_title("Aggregated P50 with Min-Max Error Bars")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=10)
+    ax2.grid(True, alpha=0.3, axis="y")
+
+    fig.suptitle("Temporal Variance — Excluding Lambda Durable (cloud, c=10, 64KB)", fontsize=13)
+    fig.tight_layout()
+    fig.text(0.5, -0.01,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
+    fig.savefig(OUT_DIR / "25_temporal_variance_no_durable.png")
+    plt.close(fig)
+    print("  25_temporal_variance_no_durable.png")
+
+
 # ── Plot 17: Normalized Latency Distribution (KDE) ──
 
 def plot_normalized_distribution():
@@ -1486,5 +1706,7 @@ if __name__ == "__main__":
     plot_detailed_decomposition_heavy()
     plot_scatter_boki_lambda()
     plot_scatter_others()
+    plot_temporal_variance()
+    plot_temporal_variance_no_durable()
 
     print(f"\nDone. {len(list(OUT_DIR.glob('*.png')))} plots generated.")

@@ -41,12 +41,12 @@ Second benchmark run. Key changes from run_1:
 ### Steady-State Throughput (64KB state)
 
 
-| Concurrency | Lambda (inv/s) | Boki (inv/s) | Cloudburst (inv/s)      |
-| ----------- | -------------- | ------------ | ----------------------- |
-| c=1         | 20.2*          | 42.9         | 25.2                    |
-| c=10        | 45.9*          | 280.5        | 32.6                    |
-| c=50        | 88.0*          | 532.8        | 6.7 (gateway saturated) |
-| c=100       | 93.4*          | 665.1        | —                       |
+| Concurrency | Lambda (inv/s) | Boki (inv/s) | Cloudburst (inv/s) |
+| ----------- | -------------- | ------------ | ------------------ |
+| c=1         | 20.2*          | 42.9         | 1.2                |
+| c=10        | 45.9*          | 280.5        | 6.6                |
+| c=50        | 88.0*          | 532.8        | 15.5               |
+| c=100       | 93.4*          | 665.1        | —                  |
 
 
 *Lambda values from run_1 (infrastructure unchanged)
@@ -55,7 +55,7 @@ Second benchmark run. Key changes from run_1:
 
 - Boki peaks at c=100 (665/s) — improved from run_1's 341/s (likely warmer log pipeline).
 - Boki throughput scales well: 43→281→533→665 inv/s across c=1 to c=100.
-- Cloudburst at c=1 is comparable to Lambda (25 vs 20 inv/s). HTTP gateway becomes bottleneck at c≥50.
+- Cloudburst throughput limited by multi-hop dispatch path (HTTP→ZMQ→scheduler→executor→Anna) + internet RTT from edge client.
 - Lambda scales smoothly but is capped by the 10-concurrent-execution account limit.
 
 ### Latency Distribution (64KB state)
@@ -63,34 +63,34 @@ Second benchmark run. Key changes from run_1:
 
 | Metric          | Lambda (c=10, fresh) | Boki (c=50) | Cloudburst (c=10) |
 | --------------- | -------------------- | ----------- | ----------------- |
-| Client P50      | 56.0ms               | 50.9ms      | 142.1ms           |
-| Client P95      | 73.4ms               | 88.7ms      | 315.2ms           |
-| State write P50 | 3,035us              | 4,855us     | 13,175us          |
-| State read P50  | 1,733us              | 2us         | 2,232us           |
+| Client P50      | 56.0ms               | 50.9ms      | 691.9ms           |
+| Client P95      | 73.4ms               | 88.7ms      | 2,889.2ms         |
+| State write P50 | 3,035us              | 4,855us     | 4,934us           |
+| State read P50  | 1,733us              | 2us         | 1,152us           |
 | Sample size     | 200                  | 1000        | 1000              |
 
 
 **Observations:**
 
 - Lambda fresh data (post Redis reboot) shows slightly higher write P50 (3ms vs 1.8ms in run_1) — cold Redis cache.
-- Cloudburst write latency improved from run_1 (16.5ms → 13.2ms) thanks to Anna routing.
+- Cloudburst edge latency dominated by internet RTT (~30ms per hop) amplified by multi-hop architecture (HTTP→ZMQ→scheduler→executor→Anna). Cloud results show much lower overhead.
 - Boki write and read latencies stable between runs.
 
 ### State Size Impact
 
 
-| State Size | Lambda P50 | Boki P50 | CB P50  | Lambda Write | Boki Write | CB Write |
-| ---------- | ---------- | -------- | ------- | ------------ | ---------- | -------- |
-| 1 KB       | 46.9ms     | 49.0ms   | 145.3ms | 1,538us      | 3,858us    | 11,993us |
-| 64 KB      | 53.5ms     | 56.9ms   | 153.5ms | 1,846us      | 5,176us    | 14,248us |
-| 512 KB     | 59.0ms     | 56.3ms   | 154.5ms | 6,582us      | 5,296us    | 12,390us |
+| State Size | Lambda P50 | Boki P50 | CB P50    | Lambda Write | Boki Write | CB Write  |
+| ---------- | ---------- | -------- | --------- | ------------ | ---------- | --------- |
+| 1 KB       | 46.9ms     | 49.0ms   | 943.6ms   | 1,538us      | 3,858us    | 3,889us   |
+| 64 KB      | 53.5ms     | 56.9ms   | 2,029.1ms | 1,846us      | 5,176us    | 7,628us   |
+| 512 KB     | 59.0ms     | 56.3ms   | 1,704.5ms | 6,582us      | 5,296us    | 20,314us  |
 
 
 **Observations:**
 
 - Lambda shows clear size sensitivity: 1KB→512KB write latency ~4.3x increase (1.5ms→6.6ms). Read latency also scales: 1.4ms→6.1ms.
 - Boki moderately sensitive: 1KB→512KB write increases ~37%.
-- Cloudburst relatively flat — Anna KVS overhead dominates regardless of payload size.
+- Cloudburst write latency scales with state size (3.9ms→20.3ms for 1KB→512KB). Client latency dominated by internet RTT from edge.
 
 ## Metric Coverage (Full Table)
 

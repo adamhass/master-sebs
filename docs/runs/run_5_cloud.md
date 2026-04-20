@@ -59,27 +59,27 @@ ClientLatency = NetworkRTT + FunctionExecution + ServerlessOverhead
 
 | Component | Lambda | Boki | Cloudburst |
 |-----------|--------|------|------------|
-| Client E2E | 55.3ms | 50.9ms | 142.1ms |
-| Network RTT | 23.1ms | 7.7ms | 8.2ms |
-| Function execution | 5.1ms | 7.6ms | 19.5ms |
-| Serverless overhead | 25.5ms | 35.1ms | 115.6ms |
+| Client E2E | 55.3ms | 50.9ms | 691.9ms |
+| Network RTT | 23.1ms | 7.7ms | 29.5ms |
+| Function execution | 5.1ms | 7.6ms | 6.1ms |
+| Serverless overhead | 25.5ms | 35.1ms | 656.3ms |
 
 #### Cloud (EC2 → private/regional → AWS)
 
 | Component | Lambda | Boki | Cloudburst |
 |-----------|--------|------|------------|
-| Client E2E | 27.3ms | **10.2ms** | 99.3ms |
-| Network RTT | 8.1ms | **236μs** | 183μs |
-| Function execution | 2.3ms | 5.2ms | 14.5ms |
-| Serverless overhead | 15.8ms | **4.0ms** | 82.0ms |
+| Client E2E | 27.3ms | **10.2ms** | 90.9ms |
+| Network RTT | 8.1ms | **236μs** | 380μs |
+| Function execution | 2.3ms | 5.2ms | 5.8ms |
+| Serverless overhead | 15.8ms | **4.0ms** | 84.7ms |
 
 #### Percentage Breakdown (Cloud, P50)
 
 | Component | Lambda | Boki | Cloudburst |
 |-----------|--------|------|------------|
-| % Network | 30.1% | 2.6% | 0.2% |
-| % Function | 9.3% | 54.5% | 14.3% |
-| % Overhead | 59.0% | 42.8% | 85.3% |
+| % Network | 30.1% | 2.6% | 0.4% |
+| % Function | 9.3% | 54.5% | 6.4% |
+| % Overhead | 59.0% | 42.8% | 93.2% |
 
 Samples: Lambda=1000, Boki=1000, Cloudburst=1000.
 
@@ -89,7 +89,7 @@ Samples: Lambda=1000, Boki=1000, Cloudburst=1000.
 |--------|----------|-----------|-------------|-------------|
 | Lambda | 55.3ms | 27.3ms | **2.0x** | TLS overhead halved (intra-region), RTT 23→8ms |
 | Boki | 50.9ms | 10.2ms | **5.0x** | Private IP eliminates internet RTT, overhead 35→4ms |
-| Cloudburst | 142.1ms | 99.3ms | **1.4x** | Network removed but scheduler dispatch still 82ms |
+| Cloudburst | 691.9ms | 90.9ms | **7.6x** | Edge internet RTT amplified by multi-hop ZMQ dispatch; cloud removes network penalty |
 
 ---
 
@@ -98,10 +98,10 @@ Samples: Lambda=1000, Boki=1000, Cloudburst=1000.
 
 | Concurrency | Lambda (inv/s) | Boki (inv/s) | Cloudburst (inv/s) |
 |-------------|----------------|--------------|-------------------|
-| c=1 | 38.8 | 144.2 | 36.3 |
-| c=10 | 145.9 | 428.2 | 46.7 |
-| c=50 | 221.2 | 875.9 | 37.3 |
-| c=100 | 545.9 | 849.9 | 54.8 |
+| c=1 | 38.8 | 144.2 | 8.6 |
+| c=10 | 145.9 | 428.2 | 19.4 |
+| c=50 | 221.2 | 875.9 | 24.0 |
+| c=100 | 545.9 | 849.9 | 11.5 |
 
 
 ### Throughput Comparison: Edge vs Cloud
@@ -109,10 +109,10 @@ Samples: Lambda=1000, Boki=1000, Cloudburst=1000.
 
 | Concurrency | Lambda edge→cloud | Boki edge→cloud | Cloudburst edge→cloud |
 |-------------|-------------------|-----------------|----------------------|
-| c=1 | 20.7 → 38.8 (1.9x) | 42.9 → 144.2 (3.4x) | 25.2 → 36.3 (1.4x) |
-| c=10 | 84.0 → 145.9 (1.7x) | 280.5 → 428.2 (1.5x) | 32.6 → 46.7 (1.4x) |
-| c=50 | 87.9 → 221.2 (2.5x) | 532.8 → 875.9 (1.6x) | 38.9 → 37.3 (1.0x) |
-| c=100 | 86.8 → 545.9 (6.3x) | 665.1 → 849.9 (1.3x) | 62.3 → 54.8 (0.9x) |
+| c=1 | 20.7 → 38.8 (1.9x) | 42.9 → 144.2 (3.4x) | 1.2 → 8.6 (7.2x) |
+| c=10 | 84.0 → 145.9 (1.7x) | 280.5 → 428.2 (1.5x) | 6.6 → 19.4 (2.9x) |
+| c=50 | 87.9 → 221.2 (2.5x) | 532.8 → 875.9 (1.6x) | 15.5 → 24.0 (1.5x) |
+| c=100 | 86.8 → 545.9 (6.3x) | 665.1 → 849.9 (1.3x) | — → 11.5 (—) |
 
 
 **Observations:**
@@ -201,10 +201,10 @@ docs/plots/out/11_latency_decomposition.png  — edge vs cloud stacked bar
 
 | Concurrency | Lambda (inv/s) | Boki (inv/s) | Cloudburst (inv/s) |
 |-------------|----------------|--------------|-------------------|
-| c=1 | 38.8 | 144.2 | 36.3 |
-| c=10 | 145.9 | 428.2 | 46.7 |
-| c=50 | 221.2 | 875.9 | 37.3 |
-| c=100 | 545.9 | 849.9 | 54.8 |
+| c=1 | 38.8 | 144.2 | 8.6 |
+| c=10 | 145.9 | 428.2 | 19.4 |
+| c=50 | 221.2 | 875.9 | 24.0 |
+| c=100 | 545.9 | 849.9 | 11.5 |
 
 
 ### Latency Distribution (64KB state, cloud)
@@ -212,11 +212,11 @@ docs/plots/out/11_latency_decomposition.png  — edge vs cloud stacked bar
 
 | Metric | Lambda | Boki | Cloudburst |
 |--------|--------|------|------------|
-| Client P50 | 27.3ms | 10.2ms | 99.3ms |
-| Client P95 | 33.0ms | 14.0ms | 209.8ms |
-| Client P99 | 39.7ms | 15.3ms | 1,066.5ms |
-| Write P50 | 1,086μs | 3,471μs | 7,708μs |
-| Read P50 | 894μs | 2μs* | 1,838μs |
+| Client P50 | 27.3ms | 10.2ms | 90.9ms |
+| Client P95 | 33.0ms | 14.0ms | 1,087.3ms |
+| Client P99 | 39.7ms | 15.3ms | 2,131.0ms |
+| Write P50 | 1,086μs | 3,471μs | 4,900μs |
+| Read P50 | 894μs | 2μs* | 909μs |
 | Samples | 1,000 | 1,000 | 1,000 |
 
 

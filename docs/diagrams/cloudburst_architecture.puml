@@ -1,5 +1,4 @@
 @startuml cloudburst_architecture
-!theme plain
 title Cloudburst Stateful Serverless — Deployment Architecture
 
 skinparam rectangle {

@@ -72,12 +72,22 @@ def _make_stateful_bench():
     import time as _time
     import uuid as _uuid
 
-    def stateful_bench(cloudburst, request_id):
-        state_size_kb = int(os.environ.get("STATE_SIZE_KB", "64"))
-        state_key = os.environ.get("STATE_KEY", "bench:state")
-        ops = int(os.environ.get("OPS", "1"))
+    def stateful_bench(cloudburst, request_id, state_key=None,
+                       state_size_kb=None, ops=None):
+        if state_size_kb is None:
+            state_size_kb = int(os.environ.get("STATE_SIZE_KB", "64"))
+        else:
+            state_size_kb = int(state_size_kb)
+        if state_key is None:
+            state_key = "bench:state:" + (request_id or _uuid.uuid4().hex)[:8]
+        if ops is None:
+            ops = int(os.environ.get("OPS", "1"))
+        else:
+            ops = int(ops)
 
         begin = _time.time()
+        state_size_kb = max(1, state_size_kb)
+        ops = max(1, ops)
         blob = os.urandom(state_size_kb * 1024)
 
         write_start = _time.time()
@@ -90,8 +100,8 @@ def _make_stateful_bench():
 
         # Lightweight compute
         acc = 0
-        for i in range(1000):
-            acc += i
+        for idx in range(min(ops * 64, 20000)):
+            acc = (acc + idx + state_size_kb) % 1000003
         compute_end = _time.time()
 
         end = _time.time()
@@ -130,12 +140,12 @@ def ensure_registered(scheduler_ip, client_ip, local):
         reg_conn = CloudburstConnection(scheduler_ip, client_ip, tid=99, local=local)
 
         bench_fn = _make_stateful_bench()
-        print("Registering stateful_bench function...")
-        cloud_fn = reg_conn.register(bench_fn, "stateful_bench")
+        print("Registering stateful_bench_v2 function...")
+        cloud_fn = reg_conn.register(bench_fn, "stateful_bench_v2")
         if cloud_fn is None:
             print("  Function registration returned None (may already exist)")
 
-        success, error = reg_conn.register_dag("stateful_dag", ["stateful_bench"], [])
+        success, error = reg_conn.register_dag("stateful_dag_v2", ["stateful_bench_v2"], [])
         if not success:
             print(f"  DAG registration returned error {error} (may already exist)")
 
@@ -155,16 +165,25 @@ class CloudburstHandler(BaseHTTPRequestHandler):
             payload = json.loads(body)
 
             request_id = payload.get("request_id", uuid.uuid4().hex)
+            state_key = payload.get("state_key", "bench:state:" + request_id[:8])
+            state_size_kb = payload.get("state_size_kb", 64)
+            ops = payload.get("ops", 1)
 
             ensure_registered(self.scheduler_ip, self.client_ip, self.local)
             conn = get_connection(self.scheduler_ip, self.client_ip, self.local)
             try:
                 begin = time.time()
-                result = conn.call_dag(
-                    "stateful_dag",
-                    {"stateful_bench": [request_id]},
-                    direct_response=True,
+                fut = conn.call_dag(
+                    "stateful_dag_v2",
+                    {"stateful_bench_v2": [request_id, state_key,
+                                           state_size_kb, ops]},
+                    direct_response=False,
                 )
+                # Resolve future — blocks until executor stores result in Anna
+                if hasattr(fut, 'get'):
+                    result = fut.get()
+                else:
+                    result = fut
                 end = time.time()
             finally:
                 return_connection(conn)

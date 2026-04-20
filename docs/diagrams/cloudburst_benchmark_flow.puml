@@ -1,5 +1,4 @@
 @startuml cloudburst_benchmark_flow
-!theme plain
 title Cloudburst Stateful Benchmark — Invocation Flow
 
 actor "Client\n(run_benchmark.py)" as client
