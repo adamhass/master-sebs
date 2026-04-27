@@ -960,6 +960,48 @@ def plot_latency_decomposition():
     plt.close(fig)
     print("  19_latency_decomp_no_durable_p95.png")
 
+    # ── Plot 28: P95 without Cloudburst ──
+    no_cloudburst = ["Lambda + Redis", "Lambda Durable", "Boki", "Restate"]
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p95, "P95",
+                              "Client Latency P95 (ms)", plot_order=no_cloudburst)
+    ax.set_title("Latency Decomposition (P95) — Excluding Cloudburst")
+    fig.savefig(OUT_DIR / "28_latency_decomp_p95_no_cloudburst.png")
+    plt.close(fig)
+    print("  28_latency_decomp_p95_no_cloudburst.png")
+
+    # ── Plot 29: P95 without Cloudburst and without Lambda Durable ──
+    core_only = ["Lambda + Redis", "Boki", "Restate"]
+
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    _build_decomposition_plot(ax, scenarios_p95, "P95",
+                              "Client Latency P95 (ms)", plot_order=core_only)
+    ax.set_title("Latency Decomposition (P95) — Excl. Cloudburst \& Durable")
+    fig.savefig(OUT_DIR / "29_latency_decomp_p95_core.png")
+    plt.close(fig)
+    print("  29_latency_decomp_p95_core.png")
+
+    # ── Plot 30: P50 without Cloudburst and without Lambda Durable ──
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    _build_decomposition_plot(ax, scenarios_p50, "P50",
+                              "Client Latency P50 (ms)", plot_order=core_only)
+    ax.set_title("Latency Decomposition (P50) — Excl. Cloudburst \& Durable")
+    fig.savefig(OUT_DIR / "30_latency_decomp_p50_core.png")
+    plt.close(fig)
+    print("  30_latency_decomp_p50_core.png")
+
+    # ── Plot 31: P50 without Cloudburst (includes Durable) ──
+    no_cloudburst_p50 = ["Lambda + Redis", "Lambda Durable", "Boki", "Restate"]
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    _build_decomposition_plot(ax, scenarios_p50, "P50",
+                              "Client Latency P50 (ms)", plot_order=no_cloudburst_p50)
+    ax.set_title("Latency Decomposition (P50) — Excluding Cloudburst")
+    fig.savefig(OUT_DIR / "31_latency_decomp_p50_no_cloudburst.png")
+    plt.close(fig)
+    print("  31_latency_decomp_p50_no_cloudburst.png")
+
 
 # ── Plot 15: Write vs Read P95 Breakdown ──
 
@@ -1682,6 +1724,87 @@ def plot_detailed_decomposition_heavy():
     print("  21_detailed_decomposition_heavy.png")
 
 
+def plot_latency_percentiles_no_cloudburst():
+    """Plot 26: Latency percentiles excluding Cloudburst for better Y-axis resolution."""
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    percentile_labels = ["P50", "P95", "P99"]
+    percentile_vals = [50, 95, 99]
+    x = np.arange(len(percentile_labels))
+
+    exclude = {"Cloudburst + Anna"}
+    active = []
+    for name in SYSTEMS:
+        if name in exclude:
+            continue
+        data = _load(name, "latency-dist.json")
+        if not data:
+            continue
+        active.append((name, data))
+
+    width = 0.8 / max(len(active), 1)
+    for i, (name, data) in enumerate(active):
+        results, _ = data
+        lats = sorted(extract_client_latencies(results))
+        n = len(lats)
+        vals = [lats[min(int(p / 100 * n), n - 1)] for p in percentile_vals]
+        bars = ax.bar(x + i * width, vals, width, label=SHORT_NAMES[name],
+                      color=COLORS[name])
+        for bar in bars:
+            h = bar.get_height()
+            ax.annotate(f"{h:.1f}", xy=(bar.get_x() + bar.get_width() / 2, h),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha="center", fontsize=7)
+
+    ax.set_xlabel("Percentile")
+    ax.set_ylabel("Client Latency (ms)")
+    ax.set_title("Client Latency Percentiles — Excluding Cloudburst (64KB state)")
+    ax.set_xticks(x + width * max(len(active) - 1, 0) / 2)
+    ax.set_xticklabels(percentile_labels)
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
+    fig.savefig(OUT_DIR / "26_latency_percentiles_no_cloudburst.png")
+    plt.close(fig)
+    print("  26_latency_percentiles_no_cloudburst.png")
+
+
+def plot_latency_cdf_cloud_no_cloudburst():
+    """Plot 27: Cloud CDF excluding Cloudburst for better X-axis resolution."""
+    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    exclude = {"Cloudburst + Anna"}
+
+    for name in SYSTEMS:
+        if name in exclude:
+            continue
+        sdir = SYSTEM_DIRS[name]
+        path = CLOUD_DIR / sdir / "latency-dist.json"
+        if not path.exists():
+            continue
+        with open(path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            continue
+        results = list(invocations[0].values())
+        lats = sorted(extract_client_latencies(results))
+        percentiles = np.arange(1, len(lats) + 1) / len(lats) * 100
+        ax.plot(lats, percentiles, color=COLORS[name], label=SHORT_NAMES[name],
+                linewidth=1.5)
+
+    ax.set_xlabel("Client Latency (ms)")
+    ax.set_ylabel("Percentile (%)")
+    ax.set_title("Latency Distribution (CDF) — Cloud, Excluding Cloudburst")
+    ax.set_ylim(0, 100)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.text(0.5, -0.02,
+             "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
+             ha="center", fontsize=8, style="italic", color="#555555")
+    fig.savefig(OUT_DIR / "27_latency_cdf_cloud_no_cloudburst.png")
+    plt.close(fig)
+    print("  27_latency_cdf_cloud_no_cloudburst.png")
+
+
 if __name__ == "__main__":
     print(f"Generating plots from {RESULTS_DIR}")
     print(f"Output: {OUT_DIR}\n")
@@ -1708,5 +1831,7 @@ if __name__ == "__main__":
     plot_scatter_others()
     plot_temporal_variance()
     plot_temporal_variance_no_durable()
+    plot_latency_percentiles_no_cloudburst()
+    plot_latency_cdf_cloud_no_cloudburst()
 
     print(f"\nDone. {len(list(OUT_DIR.glob('*.png')))} plots generated.")

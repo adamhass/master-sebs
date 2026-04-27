@@ -246,8 +246,8 @@ def main():
     parser.add_argument("--client-ip", default=None,
                         help="This machine's IP for ZMQ responses (default: auto-detect)")
     parser.add_argument("--port", type=int, default=8088, help="HTTP port (default: 8088)")
-    parser.add_argument("--local", action="store_true", default=True,
-                        help="Use Anna local mode (default: true)")
+    parser.add_argument("--local", action="store_true", default=False,
+                        help="Use Anna local/IPC mode (default: false, use TCP)")
     args = parser.parse_args()
 
     scheduler_ip = args.scheduler_ip
