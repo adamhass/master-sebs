@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate thesis comparison plots for all five stateful serverless systems.
+Generate thesis comparison plots for the stateful serverless systems.
 
 Usage:
     cd master-sebs
@@ -21,25 +21,39 @@ import numpy as np
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 RESULTS_DIR = SCRIPT_DIR.parent.parent / "results" / "run2"
+CLOUD_RESULTS_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
 RESULTS_DIR_RUN6 = SCRIPT_DIR.parent.parent / "results" / "run6"
 OUT_DIR = SCRIPT_DIR / "out"
 OUT_DIR.mkdir(exist_ok=True)
 
+POINTS_PER_INCH = 72.0
+FIGURE_WIDTH_PT = 516.0
+FIGURE_WIDTH_IN = FIGURE_WIDTH_PT / POINTS_PER_INCH
+
 # Style
 COLORS = {
+    "Gresse": "#795548",
     "Lambda + Redis": "#FF9900",
-    "Lambda Durable": "#E53935",
-    "Boki": "#2196F3",
     "Cloudburst + Anna": "#4CAF50",
+    "Boki": "#2196F3",
     "Restate": "#9C27B0",
+    "Lambda Durable": "#E53935",
 }
-SYSTEMS = list(COLORS.keys())
+SYSTEMS = [
+    "Gresse",
+    "Lambda + Redis",
+    "Cloudburst + Anna",
+    "Boki",
+    "Restate",
+    "Lambda Durable",
+]
 SYSTEM_DIRS = {
     "Lambda + Redis": "lambda",
     "Lambda Durable": "lambda-durable",
     "Boki": "boki",
     "Cloudburst + Anna": "cloudburst",
     "Restate": "restate",
+    "Gresse": "gresse",
 }
 SHORT_NAMES = {
     "Lambda + Redis": "Lambda\nBaseline",
@@ -47,21 +61,35 @@ SHORT_NAMES = {
     "Boki": "Boki",
     "Cloudburst + Anna": "Cloudburst",
     "Restate": "Restate",
+    "Gresse": "Gresse",
 }
+PLOT_1_SYSTEMS = list(SYSTEMS)
+RUN6_SYSTEMS = {"Lambda Durable", "Restate", "Gresse"}
 
 plt.rcParams.update({
-    "font.size": 11,
-    "axes.titlesize": 13,
-    "axes.labelsize": 12,
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
+    "font.size": 10,
+    "axes.titlesize": 10,
+    "axes.labelsize": 10,
     "legend.fontsize": 10,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
     "figure.dpi": 150,
-    "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.15,
+    "figure.constrained_layout.use": True,
+    "savefig.bbox": None,
+    "savefig.pad_inches": 0.05,
 })
 
 
+def scaled_figsize(width_in: float, height_in: float) -> tuple:
+    """Scale an existing figure aspect to the fixed publication width."""
+    scale = FIGURE_WIDTH_IN / width_in
+    return (FIGURE_WIDTH_IN, height_in * scale)
+
+
 def load_results(system_dir, filename):
-    path = RESULTS_DIR / system_dir / filename
+    path = CLOUD_RESULTS_DIR / system_dir / filename
     if not path.exists():
         return None
     with open(path) as f:
@@ -91,10 +119,8 @@ def load_results_run6(system_dir, filename):
 
 
 def _load(name, filename):
-    """Load results for a system, using run6 for new systems."""
+    """Load primary comparison results for a system."""
     sdir = SYSTEM_DIRS[name]
-    if name in ("Lambda Durable", "Restate"):
-        return load_results_run6(sdir, filename)
     return load_results(sdir, filename)
 
 
@@ -132,10 +158,10 @@ def extract_read_latencies(results, warm_only=True):
 # ── Plot 1: Throughput Scaling Curve ──
 
 def plot_throughput_scaling():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     concurrencies = [1, 10, 50, 100]
 
-    for name in SYSTEMS:
+    for name in PLOT_1_SYSTEMS:
         throughputs = []
         concs_available = []
         for c in concurrencies:
@@ -170,7 +196,7 @@ def plot_throughput_scaling():
 # ── Plot 2: Latency CDF ──
 
 def plot_latency_cdf():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
 
     for name in SYSTEMS:
         data = _load(name, "latency-dist.json")
@@ -198,7 +224,7 @@ def plot_latency_cdf():
 # ── Plot 3: Latency Percentiles (Grouped Bar) ──
 
 def plot_latency_percentiles():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     percentile_labels = ["P50", "P95", "P99"]
     percentile_vals = [50, 95, 99]
     x = np.arange(len(percentile_labels))
@@ -234,7 +260,7 @@ def plot_latency_percentiles():
 # ── Plot 4: Write vs Read Latency Breakdown ──
 
 def plot_write_read_breakdown():
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(8, 4.5))
 
     active_systems = []
     writes = []
@@ -292,7 +318,7 @@ def plot_write_read_breakdown():
 # ── Plot 5: State Size Impact ──
 
 def plot_state_size_impact():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     sizes = [1, 64, 512]
     size_files = {1: "statesize-1kb.json", 64: "statesize-64kb.json", 512: "statesize-512kb.json"}
 
@@ -332,7 +358,7 @@ def plot_state_size_impact():
 # ── Plot 6: Cold Start Comparison ──
 
 def plot_cold_start():
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=scaled_figsize(6, 4))
 
     # Only Lambda systems have per-invocation cold starts.
     # Boki/Cloudburst/Restate are persistent processes — one-time infrastructure
@@ -387,7 +413,7 @@ def plot_cold_start():
 # ── Plot 7: Cost per Invocation ──
 
 def plot_cost():
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=scaled_figsize(6, 4))
 
     lambda_per_invoke = 0.0000166667  # per GB-second, 256MB = 0.25GB
     costs = {}
@@ -497,7 +523,7 @@ def plot_resource_usage():
     def get_color(iid):
         return INSTANCE_COLORS.get(iid, "#999999")
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=scaled_figsize(10, 6), sharex=True)
 
     for iid in selected:
         color = get_color(iid)
@@ -526,7 +552,9 @@ def plot_resource_usage():
     axes[1].legend(fontsize=7, loc="upper right", ncol=2)
     axes[1].grid(True, alpha=0.3)
 
-    fig.autofmt_xdate()
+    for label in axes[1].get_xticklabels():
+        label.set_rotation(30)
+        label.set_horizontalalignment("right")
     fig.savefig(OUT_DIR / "08_resource_usage.png")
     plt.close(fig)
     print("  08_resource_usage.png")
@@ -535,7 +563,7 @@ def plot_resource_usage():
 # ── Plot 9: State Placement Impact ──
 
 def plot_state_placement():
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
 
     experiments = [
         ("Same key\n(1 Anna node)", "placement-same-key.json"),
@@ -641,7 +669,7 @@ def plot_scaling_timeline_cb():
             scale_time = elapsed_s[i]
             break
 
-    fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True,
+    fig, axes = plt.subplots(3, 1, figsize=scaled_figsize(10, 7), sharex=True,
                              gridspec_kw={"height_ratios": [1, 1.5, 1]})
 
     # Throughput
@@ -688,7 +716,6 @@ def plot_scaling_timeline_cb():
                          fontsize=8, color="red", ha="left", va="top",
                          xytext=(5, 0), textcoords="offset points")
 
-    fig.tight_layout()
     fig.savefig(OUT_DIR / "10_scaling_timeline.png")
     plt.close(fig)
     print("  10_scaling_timeline.png")
@@ -697,12 +724,11 @@ def plot_scaling_timeline_cb():
 # ── Plot 13: Latency CDF — Cloud ──
 
 def plot_latency_cdf_cloud():
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
 
     for name in SYSTEMS:
         sdir = SYSTEM_DIRS[name]
-        path = CLOUD_DIR / sdir / "latency-dist.json"
+        path = CLOUD_RESULTS_DIR / sdir / "latency-dist.json"
         if not path.exists():
             continue
         with open(path) as f:
@@ -718,7 +744,7 @@ def plot_latency_cdf_cloud():
 
     ax.set_xlabel("Client Latency (ms)")
     ax.set_ylabel("Percentile (%)")
-    ax.set_title("Latency Distribution (CDF) — Cloud (EC2 in-VPC)")
+    ax.set_title("Latency Distribution (CDF)")
     ax.set_ylim(0, 100)
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -733,8 +759,7 @@ def plot_latency_cdf_cloud():
 # ── Plot 12: Throughput Scaling — Cloud ──
 
 def plot_throughput_scaling_cloud():
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     concurrencies = [1, 10, 50, 100]
 
     for name in SYSTEMS:
@@ -742,7 +767,7 @@ def plot_throughput_scaling_cloud():
         throughputs = []
         concs_available = []
         for c in concurrencies:
-            path = CLOUD_DIR / sdir / f"throughput-c{c}.json"
+            path = CLOUD_RESULTS_DIR / sdir / f"throughput-c{c}.json"
             if not path.exists():
                 continue
             with open(path) as f:
@@ -763,7 +788,7 @@ def plot_throughput_scaling_cloud():
 
     ax.set_xlabel("Concurrency (number of parallel invocations)")
     ax.set_ylabel("Throughput (invocations/sec)")
-    ax.set_title("Throughput Scaling — Cloud (EC2 in-VPC, 64KB state)")
+    ax.set_title("Throughput Scaling (64KB state)")
     ax.set_xlim(0, 105)
     ax.set_xticks(concurrencies)
     ax.set_autoscale_on(False)
@@ -782,10 +807,7 @@ def plot_throughput_scaling_cloud():
 
 def plot_latency_decomposition():
     """Stacked bar chart decomposing client latency into Network RTT,
-    Serverless Overhead, and Function Execution for each system,
-    side by side for edge (laptop) and cloud (EC2) scenarios."""
-
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+    serverless overhead, and function execution for each system."""
 
     def decompose(results_dir, system_dir, percentile=50):
         """Extract decomposition at a given percentile from latency-dist.json."""
@@ -827,44 +849,29 @@ def plot_latency_decomposition():
             "count": n,
         }
 
-    def _build_decomposition_plot(ax, scenarios, percentile_label, ylabel,
+    def _build_decomposition_plot(ax, systems_data, percentile_label, ylabel,
                                    plot_order=None):
         """Shared logic for decomposition stacked bar charts."""
         if plot_order is None:
-            plot_order = ["Lambda + Redis", "Lambda Durable", "Cloudburst + Anna", "Boki", "Restate"]
+            plot_order = ["Gresse", "Lambda + Redis", "Cloudburst + Anna", "Boki", "Restate", "Lambda Durable"]
 
         bar_labels = []
         rtt_vals = []
         overhead_vals = []
         func_vals = []
         bar_colors = []
-        system_groups = []  # track which system each bar belongs to
 
         for name in plot_order:
-            group_bars = 0
-            for scenario in ["Edge", "Cloud"]:
-                d = scenarios.get(scenario, {}).get(name)
-                if d:
-                    bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario.lower()})")
-                    rtt_vals.append(d["rtt"])
-                    overhead_vals.append(d["overhead"])
-                    func_vals.append(d["function"])
-                    bar_colors.append(COLORS[name])
-                    group_bars += 1
-            system_groups.append(group_bars)
+            d = systems_data.get(name)
+            if not d:
+                continue
+            bar_labels.append(SHORT_NAMES[name])
+            rtt_vals.append(d["rtt"])
+            overhead_vals.append(d["overhead"])
+            func_vals.append(d["function"])
+            bar_colors.append(COLORS[name])
 
-        # Position bars with gaps between system groups (not fixed pairs of 2)
-        positions = []
-        pos = 0
-        bar_idx = 0
-        for group_size in system_groups:
-            for j in range(group_size):
-                positions.append(pos)
-                pos += 1
-                bar_idx += 1
-            if bar_idx < len(bar_labels):
-                pos += 0.5  # gap between system groups
-        positions = np.array(positions)
+        positions = np.arange(len(bar_labels))
 
         width = 0.7
 
@@ -896,55 +903,43 @@ def plot_latency_decomposition():
         ax.legend(handles=legend_elements, loc="upper left", fontsize=9)
         ax.grid(True, alpha=0.3, axis="y")
 
-    # ── Plot 11: P50 ──
-    scenarios_p50 = {}
-    for scenario, rdir in [("Edge", RESULTS_DIR), ("Cloud", CLOUD_DIR)]:
-        scenarios_p50[scenario] = {}
-        for name, sdir in SYSTEM_DIRS.items():
-            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
-                d = decompose(RESULTS_DIR_RUN6, sdir, percentile=50)
-            else:
-                d = decompose(rdir, sdir, percentile=50)
-            if d:
-                scenarios_p50[scenario][name] = d
+    systems_p50 = {}
+    for name, sdir in SYSTEM_DIRS.items():
+        d = decompose(CLOUD_RESULTS_DIR, sdir, percentile=50)
+        if d:
+            systems_p50[name] = d
 
-    if not scenarios_p50.get("Edge"):
+    if not systems_p50:
         print("  11_latency_decomposition.png — SKIPPED (missing data)")
         return
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p50, "P50",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p50, "P50",
                               "Client Latency P50 (ms)")
-    ax.set_title("Latency Decomposition (P50): Edge (laptop) vs Cloud (EC2 in-VPC)")
+    ax.set_title("Latency Decomposition (P50)")
     fig.savefig(OUT_DIR / "11_latency_decomposition.png")
     plt.close(fig)
     print("  11_latency_decomposition.png")
 
-    # ── Plot 14: P95 ──
-    scenarios_p95 = {}
-    for scenario, rdir in [("Edge", RESULTS_DIR), ("Cloud", CLOUD_DIR)]:
-        scenarios_p95[scenario] = {}
-        for name, sdir in SYSTEM_DIRS.items():
-            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
-                d = decompose(RESULTS_DIR_RUN6, sdir, percentile=95)
-            else:
-                d = decompose(rdir, sdir, percentile=95)
-            if d:
-                scenarios_p95[scenario][name] = d
+    systems_p95 = {}
+    for name, sdir in SYSTEM_DIRS.items():
+        d = decompose(CLOUD_RESULTS_DIR, sdir, percentile=95)
+        if d:
+            systems_p95[name] = d
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p95, "P95",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p95, "P95",
                               "Client Latency P95 (ms)")
-    ax.set_title("Latency Decomposition (P95): Edge (laptop) vs Cloud (EC2 in-VPC)")
+    ax.set_title("Latency Decomposition (P95)")
     fig.savefig(OUT_DIR / "14_latency_decomposition_p95.png")
     plt.close(fig)
     print("  14_latency_decomposition_p95.png")
 
     # ── Plot 18: P50 without Lambda Durable (zoom into other systems) ──
-    no_durable = ["Lambda + Redis", "Cloudburst + Anna", "Boki", "Restate"]
+    no_durable = ["Gresse", "Lambda + Redis", "Cloudburst + Anna", "Boki", "Restate"]
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p50, "P50",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p50, "P50",
                               "Client Latency P50 (ms)", plot_order=no_durable)
     ax.set_title("Latency Decomposition (P50) — Excluding Lambda Durable")
     fig.savefig(OUT_DIR / "18_latency_decomp_no_durable_p50.png")
@@ -952,8 +947,8 @@ def plot_latency_decomposition():
     print("  18_latency_decomp_no_durable_p50.png")
 
     # ── Plot 19: P95 without Lambda Durable ──
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p95, "P95",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p95, "P95",
                               "Client Latency P95 (ms)", plot_order=no_durable)
     ax.set_title("Latency Decomposition (P95) — Excluding Lambda Durable")
     fig.savefig(OUT_DIR / "19_latency_decomp_no_durable_p95.png")
@@ -961,10 +956,10 @@ def plot_latency_decomposition():
     print("  19_latency_decomp_no_durable_p95.png")
 
     # ── Plot 28: P95 without Cloudburst ──
-    no_cloudburst = ["Lambda + Redis", "Lambda Durable", "Boki", "Restate"]
+    no_cloudburst = ["Gresse", "Lambda + Redis", "Boki", "Restate", "Lambda Durable"]
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p95, "P95",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p95, "P95",
                               "Client Latency P95 (ms)", plot_order=no_cloudburst)
     ax.set_title("Latency Decomposition (P95) — Excluding Cloudburst")
     fig.savefig(OUT_DIR / "28_latency_decomp_p95_no_cloudburst.png")
@@ -972,10 +967,10 @@ def plot_latency_decomposition():
     print("  28_latency_decomp_p95_no_cloudburst.png")
 
     # ── Plot 29: P95 without Cloudburst and without Lambda Durable ──
-    core_only = ["Lambda + Redis", "Boki", "Restate"]
+    core_only = ["Gresse", "Lambda + Redis", "Boki", "Restate"]
 
-    fig, ax = plt.subplots(figsize=(8, 5.5))
-    _build_decomposition_plot(ax, scenarios_p95, "P95",
+    fig, ax = plt.subplots(figsize=scaled_figsize(8, 5.5))
+    _build_decomposition_plot(ax, systems_p95, "P95",
                               "Client Latency P95 (ms)", plot_order=core_only)
     ax.set_title("Latency Decomposition (P95) — Excl. Cloudburst \& Durable")
     fig.savefig(OUT_DIR / "29_latency_decomp_p95_core.png")
@@ -983,8 +978,8 @@ def plot_latency_decomposition():
     print("  29_latency_decomp_p95_core.png")
 
     # ── Plot 30: P50 without Cloudburst and without Lambda Durable ──
-    fig, ax = plt.subplots(figsize=(8, 5.5))
-    _build_decomposition_plot(ax, scenarios_p50, "P50",
+    fig, ax = plt.subplots(figsize=scaled_figsize(8, 5.5))
+    _build_decomposition_plot(ax, systems_p50, "P50",
                               "Client Latency P50 (ms)", plot_order=core_only)
     ax.set_title("Latency Decomposition (P50) — Excl. Cloudburst \& Durable")
     fig.savefig(OUT_DIR / "30_latency_decomp_p50_core.png")
@@ -992,10 +987,10 @@ def plot_latency_decomposition():
     print("  30_latency_decomp_p50_core.png")
 
     # ── Plot 31: P50 without Cloudburst (includes Durable) ──
-    no_cloudburst_p50 = ["Lambda + Redis", "Lambda Durable", "Boki", "Restate"]
+    no_cloudburst_p50 = ["Gresse", "Lambda + Redis", "Boki", "Restate", "Lambda Durable"]
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    _build_decomposition_plot(ax, scenarios_p50, "P50",
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
+    _build_decomposition_plot(ax, systems_p50, "P50",
                               "Client Latency P50 (ms)", plot_order=no_cloudburst_p50)
     ax.set_title("Latency Decomposition (P50) — Excluding Cloudburst")
     fig.savefig(OUT_DIR / "31_latency_decomp_p50_no_cloudburst.png")
@@ -1006,69 +1001,57 @@ def plot_latency_decomposition():
 # ── Plot 15: Write vs Read P95 Breakdown ──
 
 def plot_write_read_p95():
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
+    active_systems = []
+    writes = []
+    reads = []
+    width = 0.35
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+    for name in SYSTEMS:
+        sdir = SYSTEM_DIRS[name]
+        path = CLOUD_RESULTS_DIR / sdir / "latency-dist.json"
+        if not path.exists():
+            continue
+        with open(path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            continue
+        results = list(invocations[0].values())
+        wl = sorted(extract_write_latencies(results))
+        rl = sorted(extract_read_latencies(results))
+        if not wl or not rl:
+            continue
+        n = len(wl)
+        p95_idx = min(int(0.95 * n), n - 1)
+        active_systems.append(name)
+        writes.append(wl[p95_idx] / 1000)
+        reads.append(rl[p95_idx] / 1000)
 
-    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
-        ("Edge", RESULTS_DIR, "Edge (laptop)"),
-        ("Cloud", CLOUD_DIR, "Cloud (EC2 in-VPC)"),
-    ]):
-        ax = axes[ax_idx]
-        x = np.arange(len(SYSTEMS))
-        width = 0.35
+    x = np.arange(len(active_systems))
+    bars1 = ax.bar(x - width / 2, writes, width, label="Write P95",
+                   color=[COLORS[s] for s in active_systems], alpha=0.9)
+    bars2 = ax.bar(x + width / 2, reads, width, label="Read P95",
+                   color=[COLORS[s] for s in active_systems], alpha=0.5, hatch="//")
 
-        writes = []
-        reads = []
-        for name in SYSTEMS:
-            sdir = SYSTEM_DIRS[name]
-            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
-                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
-            else:
-                path = rdir / sdir / "latency-dist.json"
-            if not path.exists():
-                writes.append(0)
-                reads.append(0)
-                continue
-            with open(path) as f:
-                data = json.load(f)
-            invocations = list(data.get("_invocations", {}).values())
-            if not invocations:
-                writes.append(0)
-                reads.append(0)
-                continue
-            results = list(invocations[0].values())
-            wl = sorted(extract_write_latencies(results))
-            rl = sorted(extract_read_latencies(results))
-            n = len(wl)
-            p95_idx = min(int(0.95 * n), n - 1)
-            writes.append(wl[p95_idx] / 1000)
-            reads.append(rl[p95_idx] / 1000)
+    ax.set_ylabel("Latency (ms)")
+    ax.set_title("State Write vs Read (P95)")
+    ax.set_xticks(x)
+    ax.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=10)
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3, axis="y")
 
-        bars1 = ax.bar(x - width / 2, writes, width, label="Write P95",
-                       color=[COLORS[s] for s in SYSTEMS], alpha=0.9)
-        bars2 = ax.bar(x + width / 2, reads, width, label="Read P95",
-                       color=[COLORS[s] for s in SYSTEMS], alpha=0.5, hatch="//")
+    for bar, raw_us in zip(bars1, [w * 1000 for w in writes]):
+        h = bar.get_height()
+        label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us"
+        ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
+                    xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
+    for bar, raw_us in zip(bars2, [r * 1000 for r in reads]):
+        h = bar.get_height()
+        label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us*"
+        ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
+                    xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
 
-        ax.set_title(f"State Write vs Read (P95) — {title_suffix}")
-        ax.set_xticks(x)
-        ax.set_xticklabels([SHORT_NAMES[s] for s in SYSTEMS], fontsize=10)
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3, axis="y")
-
-        for bar, raw_us in zip(bars1, [w * 1000 for w in writes]):
-            h = bar.get_height()
-            label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us"
-            ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
-                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
-        for bar, raw_us in zip(bars2, [r * 1000 for r in reads]):
-            h = bar.get_height()
-            label = f"{h:.1f}" if h >= 0.1 else f"{raw_us:.0f}us*"
-            ax.annotate(label, xy=(bar.get_x() + bar.get_width() / 2, max(h, 0.05)),
-                        xytext=(0, 3), textcoords="offset points", ha="center", fontsize=7)
-
-    axes[0].set_ylabel("Latency (ms)")
-    fig.tight_layout()
     fig.savefig(OUT_DIR / "15_write_read_p95.png")
     plt.close(fig)
     print("  15_write_read_p95.png")
@@ -1079,73 +1062,58 @@ def plot_write_read_p95():
 def plot_latency_scatter():
     """Scatter: x=wallclock time, y=latency per invocation. Shows stability,
     bimodality (cold starts), variance over time."""
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    for name in SYSTEMS:
+        sdir = SYSTEM_DIRS[name]
+        path = CLOUD_RESULTS_DIR / sdir / "latency-dist.json"
+        if not path.exists():
+            continue
+        with open(path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            continue
+        results = list(invocations[0].values())
 
-    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
-        ("Edge", RESULTS_DIR, "Edge"),
-        ("Cloud", CLOUD_DIR, "Cloud"),
-    ]):
-        ax = axes[ax_idx]
-        for name in SYSTEMS:
-            sdir = SYSTEM_DIRS[name]
-            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
-                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
-            else:
-                path = rdir / sdir / "latency-dist.json"
-            if not path.exists():
-                continue
-            with open(path) as f:
-                data = json.load(f)
-            invocations = list(data.get("_invocations", {}).values())
-            if not invocations:
-                continue
-            results = list(invocations[0].values())
+        points = []
+        for r in results:
+            begin = r.get("output", {}).get("begin", 0)
+            client_ms = r["times"]["client"] / 1000
+            cold = r.get("stats", {}).get("cold_start", False)
+            if begin > 0:
+                points.append((begin, client_ms, cold))
 
-            # Extract wallclock begin + client latency
-            points = []
-            for r in results:
-                begin = r.get("output", {}).get("begin", 0)
-                client_ms = r["times"]["client"] / 1000
-                cold = r.get("stats", {}).get("cold_start", False)
-                if begin > 0:
-                    points.append((begin, client_ms, cold))
+        if not points:
+            continue
 
-            if not points:
-                continue
+        t0 = min(p[0] for p in points)
+        elapsed = [(p[0] - t0) for p in points]
+        lats = [p[1] for p in points]
+        colds = [p[2] for p in points]
 
-            t0 = min(p[0] for p in points)
-            elapsed = [(p[0] - t0) for p in points]
-            lats = [p[1] for p in points]
-            colds = [p[2] for p in points]
+        elapsed, lats, colds = zip(*[
+            (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= 10
+        ]) if any(t <= 10 for t in elapsed) else ([], [], [])
 
-            # Filter to first 10 seconds only
-            elapsed, lats, colds = zip(*[
-                (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= 10
-            ]) if any(t <= 10 for t in elapsed) else ([], [], [])
+        warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
+        warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
+        ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
 
-            # Warm points
-            warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
-            warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
-            ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
+        cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
+        cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
+        if cold_t:
+            ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
+                      marker="x", linewidths=1.5, label=f"{name} (cold)")
 
-            # Cold points (if any)
-            cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
-            cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
-            if cold_t:
-                ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
-                          marker="x", linewidths=1.5, label=f"{name} (cold)")
+    ax.set_xlabel("Elapsed time (s)")
+    ax.set_ylabel("Client Latency (ms)")
+    ax.set_title("Latency over Time")
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=1, top=10000)
+    ax.legend(fontsize=7, loc="upper right")
+    ax.grid(True, alpha=0.3)
 
-        ax.set_xlabel("Elapsed time (s)")
-        ax.set_ylabel("Client Latency (ms)")
-        ax.set_title(f"Latency over Time — {title_suffix}")
-        ax.set_yscale("log")
-        ax.set_ylim(bottom=1, top=10000)
-        ax.legend(fontsize=7, loc="upper right")
-        ax.grid(True, alpha=0.3)
-
-    fig.tight_layout()
     fig.text(0.5, -0.02,
              "Boki and Lambda complete 1000 invocations before the 10s cutoff.",
              ha="center", fontsize=8, style="italic", color="#555555")
@@ -1156,69 +1124,57 @@ def plot_latency_scatter():
 
 def _plot_scatter_subset(subset_systems, filename, title_tag, cutoff_s=10):
     """Scatter plot for a subset of systems."""
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
+    for name in subset_systems:
+        sdir = SYSTEM_DIRS[name]
+        path = CLOUD_RESULTS_DIR / sdir / "latency-dist.json"
+        if not path.exists():
+            continue
+        with open(path) as f:
+            data = json.load(f)
+        invocations = list(data.get("_invocations", {}).values())
+        if not invocations:
+            continue
+        results = list(invocations[0].values())
 
-    for ax_idx, (scenario, rdir, title_suffix) in enumerate([
-        ("Edge", RESULTS_DIR, "Edge"),
-        ("Cloud", CLOUD_DIR, "Cloud"),
-    ]):
-        ax = axes[ax_idx]
-        for name in subset_systems:
-            sdir = SYSTEM_DIRS[name]
-            if scenario == "Edge" and name in ("Lambda Durable", "Restate"):
-                path = RESULTS_DIR_RUN6 / sdir / "latency-dist.json"
-            else:
-                path = rdir / sdir / "latency-dist.json"
-            if not path.exists():
-                continue
-            with open(path) as f:
-                data = json.load(f)
-            invocations = list(data.get("_invocations", {}).values())
-            if not invocations:
-                continue
-            results = list(invocations[0].values())
+        points = []
+        for r in results:
+            begin = r.get("output", {}).get("begin", 0)
+            client_ms = r["times"]["client"] / 1000
+            cold = r.get("stats", {}).get("cold_start", False)
+            if begin > 0:
+                points.append((begin, client_ms, cold))
 
-            points = []
-            for r in results:
-                begin = r.get("output", {}).get("begin", 0)
-                client_ms = r["times"]["client"] / 1000
-                cold = r.get("stats", {}).get("cold_start", False)
-                if begin > 0:
-                    points.append((begin, client_ms, cold))
+        if not points:
+            continue
 
-            if not points:
-                continue
+        t0 = min(p[0] for p in points)
+        elapsed = [(p[0] - t0) for p in points]
+        lats = [p[1] for p in points]
+        colds = [p[2] for p in points]
 
-            t0 = min(p[0] for p in points)
-            elapsed = [(p[0] - t0) for p in points]
-            lats = [p[1] for p in points]
-            colds = [p[2] for p in points]
+        elapsed, lats, colds = zip(*[
+            (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= cutoff_s
+        ]) if any(t <= cutoff_s for t in elapsed) else ([], [], [])
 
-            elapsed, lats, colds = zip(*[
-                (t, l, c) for t, l, c in zip(elapsed, lats, colds) if t <= cutoff_s
-            ]) if any(t <= cutoff_s for t in elapsed) else ([], [], [])
+        warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
+        warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
+        ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
 
-            warm_t = [t for t, l, c in zip(elapsed, lats, colds) if not c]
-            warm_l = [l for t, l, c in zip(elapsed, lats, colds) if not c]
-            ax.scatter(warm_t, warm_l, s=6, alpha=0.4, color=COLORS[name], label=name)
+        cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
+        cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
+        if cold_t:
+            ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
+                      marker="x", linewidths=1.5, label=f"{name} (cold)")
 
-            cold_t = [t for t, l, c in zip(elapsed, lats, colds) if c]
-            cold_l = [l for t, l, c in zip(elapsed, lats, colds) if c]
-            if cold_t:
-                ax.scatter(cold_t, cold_l, s=30, alpha=0.9, color=COLORS[name],
-                          marker="x", linewidths=1.5, label=f"{name} (cold)")
+    ax.set_xlabel("Elapsed time (s)")
+    ax.set_ylabel("Client Latency (ms)")
+    ax.set_title(title_tag)
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=1, top=10000)
+    ax.legend(fontsize=8, loc="upper right")
+    ax.grid(True, alpha=0.3)
 
-        ax.set_xlabel("Elapsed time (s)")
-        ax.set_ylabel("Client Latency (ms)")
-        ax.set_title(f"Latency over Time — {title_suffix}")
-        ax.set_yscale("log")
-        ax.set_ylim(bottom=1, top=10000)
-        ax.legend(fontsize=8, loc="upper right")
-        ax.grid(True, alpha=0.3)
-
-    fig.suptitle(title_tag, fontsize=13, y=1.02)
-    fig.tight_layout()
     fig.savefig(OUT_DIR / filename)
     plt.close(fig)
     print(f"  {filename}")
@@ -1254,7 +1210,7 @@ def plot_temporal_variance():
         "Restate": "restate-latency-dist.json",
     }
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axes = plt.subplots(1, 2, figsize=scaled_figsize(14, 5))
 
     # Left: P50 per round (scatter with lines)
     ax = axes[0]
@@ -1335,8 +1291,7 @@ def plot_temporal_variance():
     ax2.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=10)
     ax2.grid(True, alpha=0.3, axis="y")
 
-    fig.suptitle("Temporal Variance — 5 Rounds Over 10 Hours (cloud, c=10, 64KB)", fontsize=13)
-    fig.tight_layout()
+    fig.suptitle("Temporal Variance — 5 Rounds Over 10 Hours", fontsize=13)
     fig.text(0.5, -0.01,
              "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
              ha="center", fontsize=8, style="italic", color="#555555")
@@ -1358,7 +1313,7 @@ def plot_temporal_variance_no_durable():
         "Restate": "restate-latency-dist.json",
     }
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axes = plt.subplots(1, 2, figsize=scaled_figsize(14, 5))
 
     ax = axes[0]
     for name, fname in system_files.items():
@@ -1437,8 +1392,7 @@ def plot_temporal_variance_no_durable():
     ax2.set_xticklabels([SHORT_NAMES[s] for s in active_systems], fontsize=10)
     ax2.grid(True, alpha=0.3, axis="y")
 
-    fig.suptitle("Temporal Variance — Excluding Lambda Durable (cloud, c=10, 64KB)", fontsize=13)
-    fig.tight_layout()
+    fig.suptitle("Temporal Variance — Excluding Lambda Durable", fontsize=13)
     fig.text(0.5, -0.01,
              "Each invocation: fresh 64KB random state blob, unique key (no state reuse across invocations).",
              ha="center", fontsize=8, style="italic", color="#555555")
@@ -1450,7 +1404,7 @@ def plot_temporal_variance_no_durable():
 # ── Plot 17: Normalized Latency Distribution (KDE) ──
 
 def plot_normalized_distribution():
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(8, 4.5))
 
     for name in SYSTEMS:
         data = _load(name, "latency-dist.json")
@@ -1487,10 +1441,8 @@ def plot_normalized_distribution():
 
 def plot_detailed_decomposition():
     """5-component stacked bar: Network, System Overhead, Write, Read, Compute.
-    Lambda/Boki/Restate only — excludes Durable and Cloudburst (too large, separate plot)."""
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-
-    systems = ["Lambda + Redis", "Boki", "Restate"]
+    Lambda/Boki/Restate/Gresse — excludes Durable and Cloudburst (too large, separate plot)."""
+    systems = ["Gresse", "Lambda + Redis", "Boki", "Restate"]
 
     def decompose_detailed(results_dir, system_dir):
         data_path = results_dir / system_dir / "latency-dist.json"
@@ -1528,7 +1480,7 @@ def plot_detailed_decomposition():
 
         return {"network": rtt + post, "overhead": overhead, "write": w, "read": rd, "compute": compute, "total": c}
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(10, 5.5))
 
     bar_labels = []
     net_vals, oh_vals, write_vals, read_vals, compute_vals = [], [], [], [], []
@@ -1536,31 +1488,17 @@ def plot_detailed_decomposition():
 
     for name in systems:
         sdir = SYSTEM_DIRS[name]
-        for scenario, rdir in [("edge", RESULTS_DIR), ("cloud", CLOUD_DIR)]:
-            if name in ("Restate",) and scenario == "edge":
-                d = decompose_detailed(RESULTS_DIR_RUN6, sdir)
-            elif name in ("Restate",):
-                d = decompose_detailed(rdir, sdir)
-            else:
-                d = decompose_detailed(rdir, sdir)
-            if d:
-                bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario})")
-                net_vals.append(d["network"])
-                oh_vals.append(d["overhead"])
-                write_vals.append(d["write"])
-                read_vals.append(d["read"])
-                compute_vals.append(d["compute"])
-                bar_colors.append(COLORS[name])
+        d = decompose_detailed(CLOUD_RESULTS_DIR, sdir)
+        if d:
+            bar_labels.append(SHORT_NAMES[name])
+            net_vals.append(d["network"])
+            oh_vals.append(d["overhead"])
+            write_vals.append(d["write"])
+            read_vals.append(d["read"])
+            compute_vals.append(d["compute"])
+            bar_colors.append(COLORS[name])
 
-    # Position with gaps between systems
-    positions = []
-    pos = 0
-    for i in range(len(bar_labels)):
-        positions.append(pos)
-        pos += 1
-        if (i + 1) % 2 == 0 and i < len(bar_labels) - 1:
-            pos += 0.5
-    positions = np.array(positions)
+    positions = np.arange(len(bar_labels))
     width = 0.7
 
     # Stack: overhead (bottom) → write → read → compute → network (top)
@@ -1584,7 +1522,7 @@ def plot_detailed_decomposition():
                     textcoords="offset points", ha="center", fontsize=8, fontweight="bold")
 
     ax.set_ylabel("Client Latency P50 (ms)")
-    ax.set_title("Detailed Latency Decomposition (P50) — Lambda, Boki, Restate")
+    ax.set_title("Detailed Latency Decomposition (P50)")
     ax.set_xticks(positions)
     ax.set_xticklabels(bar_labels, fontsize=9)
 
@@ -1599,7 +1537,6 @@ def plot_detailed_decomposition():
     ax.legend(handles=legend_elements, loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3, axis="y")
 
-    fig.tight_layout()
     fig.savefig(OUT_DIR / "20_detailed_decomposition.png")
     plt.close(fig)
     print("  20_detailed_decomposition.png")
@@ -1609,9 +1546,7 @@ def plot_detailed_decomposition():
 
 def plot_detailed_decomposition_heavy():
     """Same 5-component decomposition for Durable + Cloudburst (high-overhead systems)."""
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-
-    systems = ["Lambda Durable", "Cloudburst + Anna"]
+    systems = ["Cloudburst + Anna", "Lambda Durable"]
 
     def decompose_detailed(results_dir, system_dir):
         data_path = results_dir / system_dir / "latency-dist.json"
@@ -1649,7 +1584,7 @@ def plot_detailed_decomposition_heavy():
 
         return {"network": rtt + post, "overhead": overhead, "write": w, "read": rd, "compute": compute, "total": c}
 
-    fig, ax = plt.subplots(figsize=(8, 5.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(8, 5.5))
 
     bar_labels = []
     net_vals, oh_vals, write_vals, read_vals, compute_vals = [], [], [], [], []
@@ -1657,30 +1592,17 @@ def plot_detailed_decomposition_heavy():
 
     for name in systems:
         sdir = SYSTEM_DIRS[name]
-        for scenario, rdir in [("edge", RESULTS_DIR), ("cloud", CLOUD_DIR)]:
-            if name == "Lambda Durable" and scenario == "edge":
-                d = decompose_detailed(RESULTS_DIR_RUN6, sdir)
-            elif name == "Lambda Durable":
-                d = decompose_detailed(rdir, sdir)
-            else:
-                d = decompose_detailed(rdir, sdir)
-            if d:
-                bar_labels.append(f"{SHORT_NAMES[name]}\n({scenario})")
-                net_vals.append(d["network"])
-                oh_vals.append(d["overhead"])
-                write_vals.append(d["write"])
-                read_vals.append(d["read"])
-                compute_vals.append(d["compute"])
-                bar_colors.append(COLORS[name])
+        d = decompose_detailed(CLOUD_RESULTS_DIR, sdir)
+        if d:
+            bar_labels.append(SHORT_NAMES[name])
+            net_vals.append(d["network"])
+            oh_vals.append(d["overhead"])
+            write_vals.append(d["write"])
+            read_vals.append(d["read"])
+            compute_vals.append(d["compute"])
+            bar_colors.append(COLORS[name])
 
-    positions = []
-    pos = 0
-    for i in range(len(bar_labels)):
-        positions.append(pos)
-        pos += 1
-        if (i + 1) % 2 == 0 and i < len(bar_labels) - 1:
-            pos += 0.5
-    positions = np.array(positions)
+    positions = np.arange(len(bar_labels))
     width = 0.7
 
     ax.bar(positions, oh_vals, width, label="System Overhead",
@@ -1703,7 +1625,7 @@ def plot_detailed_decomposition_heavy():
                     textcoords="offset points", ha="center", fontsize=8, fontweight="bold")
 
     ax.set_ylabel("Client Latency P50 (ms)")
-    ax.set_title("Detailed Latency Decomposition (P50) — Lambda Durable, Cloudburst")
+    ax.set_title("Detailed Latency Decomposition (P50) — Cloudburst and Lambda Durable")
     ax.set_xticks(positions)
     ax.set_xticklabels(bar_labels, fontsize=9)
 
@@ -1718,7 +1640,6 @@ def plot_detailed_decomposition_heavy():
     ax.legend(handles=legend_elements, loc="upper right", fontsize=8)
     ax.grid(True, alpha=0.3, axis="y")
 
-    fig.tight_layout()
     fig.savefig(OUT_DIR / "21_detailed_decomposition_heavy.png")
     plt.close(fig)
     print("  21_detailed_decomposition_heavy.png")
@@ -1726,7 +1647,7 @@ def plot_detailed_decomposition_heavy():
 
 def plot_latency_percentiles_no_cloudburst():
     """Plot 26: Latency percentiles excluding Cloudburst for better Y-axis resolution."""
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     percentile_labels = ["P50", "P95", "P99"]
     percentile_vals = [50, 95, 99]
     x = np.arange(len(percentile_labels))
@@ -1769,15 +1690,14 @@ def plot_latency_percentiles_no_cloudburst():
 
 def plot_latency_cdf_cloud_no_cloudburst():
     """Plot 27: Cloud CDF excluding Cloudburst for better X-axis resolution."""
-    CLOUD_DIR = SCRIPT_DIR.parent.parent / "results" / "cloud"
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=scaled_figsize(7, 4.5))
     exclude = {"Cloudburst + Anna"}
 
     for name in SYSTEMS:
         if name in exclude:
             continue
         sdir = SYSTEM_DIRS[name]
-        path = CLOUD_DIR / sdir / "latency-dist.json"
+        path = CLOUD_RESULTS_DIR / sdir / "latency-dist.json"
         if not path.exists():
             continue
         with open(path) as f:
@@ -1793,7 +1713,7 @@ def plot_latency_cdf_cloud_no_cloudburst():
 
     ax.set_xlabel("Client Latency (ms)")
     ax.set_ylabel("Percentile (%)")
-    ax.set_title("Latency Distribution (CDF) — Cloud, Excluding Cloudburst")
+    ax.set_title("Latency Distribution (CDF) — Excluding Cloudburst")
     ax.set_ylim(0, 100)
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -1806,7 +1726,7 @@ def plot_latency_cdf_cloud_no_cloudburst():
 
 
 if __name__ == "__main__":
-    print(f"Generating plots from {RESULTS_DIR}")
+    print(f"Generating plots from {CLOUD_RESULTS_DIR}")
     print(f"Output: {OUT_DIR}\n")
 
     plot_throughput_scaling()

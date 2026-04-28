@@ -1,0 +1,25 @@
+FROM rust:1.95-bookworm AS build
+
+WORKDIR /src
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY examples ./examples
+
+RUN cargo build --release --example bench_function
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/target/release/examples/bench_function /usr/local/bin/gresse-bench-function
+
+ENV GRESSE_HTTP_PORT=9090
+ENV GRESSE_INTERNAL_PORT=8080
+
+EXPOSE 9090
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/gresse-bench-function"]

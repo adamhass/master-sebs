@@ -1,0 +1,14 @@
+{
+  "run_id": "gresse-bench-function-n50-20260428T124950Z",
+  "system": "gresse",
+  "system_variant": "gresse-native",
+  "benchmark_name": "bench-function",
+  "num_requests": 50,
+  "gresse_http_url": "http://gresse-bench.gresse.127.0.0.1.sslip.io:8080/",
+  "consistency_model": "eventual",
+  "deployment_mode": "gresse-local",
+  "state_size_kb": 64,
+  "key_id": "bench:state",
+  "keys_count": 1,
+  "started_at_utc": "20260428T124950Z"
+}

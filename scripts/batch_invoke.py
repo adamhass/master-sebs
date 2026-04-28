@@ -31,16 +31,81 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-
-import pycurl
 from io import BytesIO
 
+try:
+    import pycurl
+except ImportError:  # pragma: no cover - exercised only when pycurl is absent
+    pycurl = None
+import requests
 
-def invoke_once(url: str, payload: dict, retries: int = 2) -> dict:
+
+def build_payload(protocol: str, state_key: str, state_size_kb: int, ops: int, request_id: str) -> dict:
+    if protocol == "gresse":
+        return {
+            "type": "Mutation",
+            "params": {
+                "Run": {
+                    "state_key": state_key,
+                    "state_size_kb": state_size_kb,
+                    "ops": ops,
+                }
+            },
+        }
+    return {
+        "state_key": state_key,
+        "state_size_kb": state_size_kb,
+        "ops": ops,
+        "request_id": request_id,
+    }
+
+
+def normalize_output(protocol: str, output: dict) -> dict:
+    if protocol != "gresse":
+        return output
+
+    if not isinstance(output, dict):
+        return {"error": "non-dict gresse response"}
+
+    ok = output.get("Ok")
+    if isinstance(ok, dict):
+        mutation = ok.get("Mutation")
+        if isinstance(mutation, dict):
+            return mutation
+        query = ok.get("Query")
+        if isinstance(query, dict):
+            return query
+
+    err = output.get("Err")
+    if err is not None:
+        return {"error": err}
+
+    return output
+
+
+def benchmark_duration_us(output: dict) -> int:
+    begin = output.get("begin")
+    end = output.get("end")
+    if begin is None or end is None:
+        return 0
+    try:
+        begin_val = float(begin)
+        end_val = float(end)
+    except (TypeError, ValueError):
+        return 0
+    delta = end_val - begin_val
+    if delta <= 0:
+        return 0
+    if begin_val > 1e12 and end_val > 1e12:
+        return int(delta)
+    return int(delta * 1e6)
+
+
+def invoke_once(url: str, payload: dict, protocol: str = "standard", retries: int = 2) -> dict:
     """Single HTTP invocation with timing. Retries on transient errors."""
     for attempt in range(retries + 1):
         try:
-            return _invoke_once_inner(url, payload)
+            return _invoke_once_inner(url, payload, protocol)
         except pycurl.error as e:
             if attempt < retries:
                 time.sleep(0.5)
@@ -56,8 +121,11 @@ def invoke_once(url: str, payload: dict, retries: int = 2) -> dict:
             }
 
 
-def _invoke_once_inner(url: str, payload: dict) -> dict:
+def _invoke_once_inner(url: str, payload: dict, protocol: str = "standard") -> dict:
     """Single HTTP invocation with timing."""
+    if pycurl is None:
+        return _invoke_once_requests(url, payload, protocol)
+
     c = pycurl.Curl()
     c.setopt(pycurl.URL, url)
     c.setopt(pycurl.HTTPHEADER, ["Content-Type: application/json"])
@@ -86,6 +154,7 @@ def _invoke_once_inner(url: str, payload: dict) -> dict:
         output = json.loads(data.getvalue())
     except (json.JSONDecodeError, ValueError):
         output = {"error": data.getvalue().decode("utf-8", errors="replace")[:200]}
+    output = normalize_output(protocol, output)
 
     request_id = output.get("request_id", payload.get("request_id", uuid.uuid4().hex))
 
@@ -93,9 +162,7 @@ def _invoke_once_inner(url: str, payload: dict) -> dict:
         "request_id": request_id,
         "times": {
             "client": client_us,
-            "benchmark": int(
-                (output.get("end", 0) - output.get("begin", 0)) * 1e6
-            ) if "begin" in output and "end" in output else 0,
+            "benchmark": benchmark_duration_us(output),
             "http_startup": conn_time,
             "http_first_byte_return": first_byte,
         },
@@ -113,7 +180,49 @@ def _invoke_once_inner(url: str, payload: dict) -> dict:
     }
 
 
-def run_batch(url, reps, concurrency, state_size_kb, state_key):
+def _invoke_once_requests(url: str, payload: dict, protocol: str = "standard") -> dict:
+    begin = datetime.now()
+    response = requests.post(
+        url,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=30,
+    )
+    end = datetime.now()
+
+    client_us = int((end - begin).total_seconds() * 1e6)
+
+    try:
+        output = response.json()
+    except ValueError:
+        output = {"error": response.text[:200]}
+    output = normalize_output(protocol, output)
+
+    request_id = output.get("request_id", payload.get("request_id", uuid.uuid4().hex))
+
+    return {
+        "request_id": request_id,
+        "times": {
+            "client": client_us,
+            "benchmark": benchmark_duration_us(output),
+            "http_startup": 0,
+            "http_first_byte_return": 0,
+        },
+        "output": output,
+        "stats": {
+            "cold_start": output.get("is_cold", False),
+            "failure": response.status_code != 200,
+        },
+        "billing": {
+            "_billed_time": None,
+            "_gb_seconds": 0,
+            "_memory": None,
+        },
+        "provider_times": {"execution": 0, "initialization": 0},
+    }
+
+
+def run_batch(url, reps, concurrency, state_size_kb, state_key, protocol):
     """Run batch invocations and collect results."""
     results = {}
     errors = 0
@@ -136,13 +245,14 @@ def run_batch(url, reps, concurrency, state_size_kb, state_key):
             for _ in range(batch_size):
                 req_id = uuid.uuid4().hex
                 invoke_url = url.replace("{key}", req_id) if has_key_template else url
-                payload = {
-                    "state_key": f"{state_key}:{req_id[:8]}",
-                    "state_size_kb": state_size_kb,
-                    "ops": 1,
-                    "request_id": req_id,
-                }
-                futures.append(pool.submit(invoke_once, invoke_url, payload))
+                payload = build_payload(
+                    protocol,
+                    f"{state_key}:{req_id[:8]}",
+                    state_size_kb,
+                    1,
+                    req_id,
+                )
+                futures.append(pool.submit(invoke_once, invoke_url, payload, protocol))
 
             batch_errors = 0
             for future in as_completed(futures):
@@ -184,11 +294,17 @@ def main():
     parser.add_argument("--state-key", default="bench:state", help="State key prefix")
     parser.add_argument("--output", default="batch_results.json", help="Output JSON path")
     parser.add_argument("--function-name", default="function", help="Function name for results")
+    parser.add_argument(
+        "--protocol",
+        choices=["standard", "gresse"],
+        default="standard",
+        help="Request/response protocol adapter",
+    )
     args = parser.parse_args()
 
     results, begin_time, end_time = run_batch(
         args.url, args.reps, args.concurrency,
-        args.state_size_kb, args.state_key,
+        args.state_size_kb, args.state_key, args.protocol,
     )
 
     # Write SeBS-compatible output
@@ -202,6 +318,7 @@ def main():
             "reps": args.reps,
             "concurrency": args.concurrency,
             "state_size_kb": args.state_size_kb,
+            "protocol": args.protocol,
         },
         "result_bucket": "",
         "statistics": {},

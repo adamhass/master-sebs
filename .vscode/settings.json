@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv-plots/bin/python",
+  "python.envFile": "${workspaceFolder}/.vscode/.env",
+  "python.terminal.activateEnvironment": true
+}
