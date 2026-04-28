@@ -42,6 +42,20 @@
       "normalized_jsonl_outputs": [
         "integrations/cloudburst/results/normalized/cloudburst_common.jsonl"
       ]
+    },
+    {
+      "id": "gresse",
+      "enabled": false,
+      "steps": [
+        {
+          "name": "bench_and_normalize",
+          "command": "GRESSE_HTTP_URL=\"${GRESSE_HTTP_URL:-http://127.0.0.1:9090/}\" ./integrations/gresse/run_gresse_bench.sh 50 && python3 integrations/gresse/gresse_to_common_schema.py --input-glob 'integrations/gresse/results/raw/*/collected_metrics.json' --output-jsonl integrations/gresse/results/normalized/gresse_common.jsonl --output-csv integrations/gresse/results/normalized/gresse_common.csv",
+          "cwd": "."
+        }
+      ],
+      "normalized_jsonl_outputs": [
+        "integrations/gresse/results/normalized/gresse_common.jsonl"
+      ]
     }
   ],
   "merged_output": {

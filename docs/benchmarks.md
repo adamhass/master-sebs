@@ -17,6 +17,7 @@
 | Stateful        | 900.baseline-lambda-redis | Python  | x64 | Lambda + ElastiCache Redis stateful benchmark (SET/GET + compute). |
 | Stateful        | 900.cloudburst-stateful   | Python  | x64 | Native Cloudburst executor with Anna KVS (put/get + compute). |
 | Stateful        | 900.boki-shared-log       | Go      | x64 | Boki shared log benchmark via Go binary (Python stub is dead code). |
+| Stateful        | 900.gresse-stateful       | Rust    | x64 | Native Gresse CRDT replica benchmark via HTTP mutation requests. |
 
 Below, we discuss the most important implementation details of each benchmark. For more details on benchmark selection and their characterization, please refer to [our paper](../README.md#publication).
 
@@ -96,6 +97,7 @@ State size tiers: `test` = 1 KB, `small` = 64 KB, `large` = 512 KB.
 | `baseline-lambda-redis` | AWS Lambda | ElastiCache Redis | HTTP via API Gateway → Lambda → Redis `SET`/`GET` |
 | `cloudburst-stateful` | Cloudburst | Anna KVS | HTTP gateway → ZMQ → Scheduler → Executor → Anna KVS `put()`/`get()` |
 | `boki-shared-log` | Boki | Shared log (slib) | Go binary via Boki gateway HTTP (Python stub is dead code) |
+| `gresse-stateful` | Gresse | Replicated CRDT state + object-store bootstrap | HTTP JSON mutation → native Rust replica → local CRDT state / replica sync |
 
 ### Baseline Lambda + Redis
 
@@ -166,6 +168,29 @@ curl -s -X POST http://GATEWAY_IP:8080/function/statefulBench \
   -d '{"state_key":"bench:state","state_size_kb":64,"ops":1}'
 ```
 
+### Gresse Stateful
+
+The Python file in `gresse-stateful/python/function.py` is a **reference stub**. The real benchmark lives in the sibling Gresse repo at `examples/bench_function/main.rs` and runs as a native Rust Gresse replica.
+
+**Implementation:** The benchmark uses a simple CRDT (`DummyCRDT`) that stores generated state blobs in a local `HashMap<String, Vec<u8>>`, records a SeBS-compatible response, and replicates invocation deltas to peers through Gresse's delta-sync runtime.
+
+**State/runtime model:** Gresse manages replica membership and bootstrap via object storage, while request-serving happens over a built-in HTTP server. Mutations are applied locally and later synchronized to peers, so the default semantics in this integration path are eventual consistency.
+
+**Per-invocation flow:**
+1. Client sends a `CRDTClientRequest::Mutation` HTTP JSON payload.
+2. Replica applies `BenchFunctionMutation::Run`.
+3. The CRDT generates synthetic state bytes and writes them to the in-memory map.
+4. The same key is read back locally.
+5. The bounded compute loop runs.
+6. The replica returns a SeBS-shaped benchmark response and records a delta for replication.
+
+**Invocation:**
+```bash
+curl -s -X POST http://127.0.0.1:9090/ \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"Mutation","params":{"Run":{"state_key":"bench:state","state_size_kb":64,"ops":1}}}'
+```
+
 ## Serverless Workflows
 
 **(WiP)** Coming soon!
@@ -173,4 +198,3 @@ curl -s -X POST http://GATEWAY_IP:8080/function/statefulBench \
 ## Applications
 
 **(WiP)** Coming soon!
-
