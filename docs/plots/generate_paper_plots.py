@@ -22,6 +22,7 @@ import seaborn as sns
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 CLOUD_RESULTS_DIR = REPO_ROOT / "results" / "cloud"
+RUN2_RESULTS_DIR = REPO_ROOT / "results" / "run2"
 RUN6_RESULTS_DIR = REPO_ROOT / "results" / "run6"
 OUT_DIR = SCRIPT_DIR / "paper_out"
 OUT_DIR.mkdir(exist_ok=True)
@@ -35,51 +36,115 @@ SINGLE_COLUMN_WIDTH_IN = SINGLE_COLUMN_WIDTH_PT / POINTS_PER_INCH
 COLORS = {
     "Gresse": "#795548",
     "Lambda + Redis": "#FF9900",
+    "Knative + Redis": "#FFB74D",
     "Cloudburst": "#4CAF50",
     "Boki": "#2196F3",
     "Restate": "#9C27B0",
     "Lambda Durable": "#E53935",
 }
 
-SYSTEMS = [
-    "Gresse",
-    "Lambda + Redis",
-    "Cloudburst",
-    "Boki",
-    "Restate",
-    "Lambda Durable",
+VARIANTS = {
+    "gresse": {
+        "family": "Gresse",
+        "label": "Gresse",
+        "label_alt": "Gresse",
+        "latency_path": RUN6_RESULTS_DIR / "gresse" / "latency-dist.json",
+        "throughput_path": RUN6_RESULTS_DIR / "gresse" / "throughput-c100.json",
+    },
+    "lambda_redis": {
+        "family": "Lambda + Redis",
+        "label": "Lambda\n[Cloud]",
+        "label_alt": "Lambda [Cloud]",
+        "latency_path": CLOUD_RESULTS_DIR / "lambda" / "latency-dist.json",
+        "throughput_path": CLOUD_RESULTS_DIR / "lambda" / "throughput-c100.json",
+    },
+    "knative_redis_edge": {
+        "family": "Knative + Redis",
+        "label": "Knative\n[Edge]",
+        "label_alt": "Knative [Edge]",
+        "latency_path": RUN6_RESULTS_DIR / "knative-redis-edge" / "latency-dist.json",
+        "throughput_path": RUN6_RESULTS_DIR / "knative-redis-edge" / "throughput-c100.json",
+    },
+    "boki_edge_results": {
+        "family": "Boki",
+        "label": "Boki\n[Cloud]",
+        "label_alt": "Boki [Cloud]",
+        "latency_path": RUN2_RESULTS_DIR / "boki" / "latency-dist.json",
+        "throughput_path": RUN2_RESULTS_DIR / "boki" / "throughput-c100.json",
+    },
+    "boki_cloud_results": {
+        "family": "Boki",
+        "label": "Boki\n[Edge]",
+        "label_alt": "Boki [Edge]",
+        "latency_path": CLOUD_RESULTS_DIR / "boki" / "latency-dist.json",
+        "throughput_path": CLOUD_RESULTS_DIR / "boki" / "throughput-c100.json",
+    },
+    "cloudburst_edge": {
+        "family": "Cloudburst",
+        "label": "Cloudburst",
+        "label_alt": "Cloudburst",
+        "latency_path": REPO_ROOT / "results" / "cloudburst" / "latency-dist.json",
+        "throughput_path": RUN2_RESULTS_DIR / "cloudburst" / "throughput-c100.json",
+    },
+    "restate_edge": {
+        "family": "Restate",
+        "label": "Restate\n[Cloud]",
+        "label_alt": "Restate [Cloud]",
+        "latency_path": RUN6_RESULTS_DIR / "restate" / "latency-dist.json",
+        "throughput_path": RUN6_RESULTS_DIR / "restate" / "throughput-c100.json",
+    },
+    "restate_local_edge": {
+        "family": "Restate",
+        "label": "Restate\n[Edge]",
+        "label_alt": "Restate [Edge]",
+        "latency_path": RUN6_RESULTS_DIR / "restate-local" / "latency-dist.json",
+        "throughput_path": RUN6_RESULTS_DIR / "restate-local" / "throughput-c100.json",
+    },
+    "lambda_durable_edge": {
+        "family": "Lambda Durable",
+        "label": "Lambda DF",
+        "label_alt": "Lambda DF",
+        "latency_path": RUN6_RESULTS_DIR / "lambda-durable" / "latency-dist.json",
+        "throughput_path": RUN6_RESULTS_DIR / "lambda-durable" / "throughput-c100.json",
+    },
+}
+
+LEFT_PANEL = [
+    "gresse",
+    "lambda_redis",
+    "knative_redis_edge",
+    "boki_edge_results",
+    "boki_cloud_results",
+    "restate_local_edge",
 ]
+RIGHT_PANEL = [
+    "restate_edge",
+    "cloudburst_edge",
+    "lambda_durable_edge",
+]
+SYSTEMS = LEFT_PANEL + RIGHT_PANEL
 
-SYSTEM_SOURCES = {
-    "Gresse": RUN6_RESULTS_DIR / "gresse" / "latency-dist.json",
-    "Lambda + Redis": CLOUD_RESULTS_DIR / "lambda" / "latency-dist.json",
-    "Cloudburst": CLOUD_RESULTS_DIR / "cloudburst" / "latency-dist.json",
-    "Boki": CLOUD_RESULTS_DIR / "boki" / "latency-dist.json",
-    "Restate": CLOUD_RESULTS_DIR / "restate" / "latency-dist.json",
-    "Lambda Durable": CLOUD_RESULTS_DIR / "lambda-durable" / "latency-dist.json",
+MEAN_LABEL_OFFSETS = {
+    "gresse": (0.0, 3.0),
+    "lambda_redis": (0.0, 3.0),
+    "knative_redis_edge": (0.0, 3.0),
+    "boki_edge_results": (0.0, 3.0),
+    "boki_cloud_results": (0.0, 3.0),
+    "restate_local_edge": (0.0, 3.0),
+    "cloudburst_edge": (0.0, 3.0),
+    "restate_edge": (0.0, 3.0),
+    "lambda_durable_edge": (0.0, 3.0),
 }
-
-THROUGHPUT_C100_SOURCES = {
-    "Gresse": RUN6_RESULTS_DIR / "gresse" / "throughput-c100.json",
-    "Lambda + Redis": CLOUD_RESULTS_DIR / "lambda" / "throughput-c100.json",
-    "Cloudburst": CLOUD_RESULTS_DIR / "cloudburst" / "throughput-c100.json",
-    "Boki": CLOUD_RESULTS_DIR / "boki" / "throughput-c100.json",
-    "Restate": CLOUD_RESULTS_DIR / "restate" / "throughput-c100.json",
-    "Lambda Durable": CLOUD_RESULTS_DIR / "lambda-durable" / "throughput-c100.json",
-}
-
-LEFT_PANEL = ["Gresse", "Lambda + Redis", "Boki"]
-RIGHT_PANEL = ["Cloudburst", "Restate", "Lambda Durable"]
 
 plt.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
-    "font.size": 9,
-    "axes.titlesize": 9,
-    "axes.labelsize": 9,
-    "legend.fontsize": 9,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
+    "font.size": 8,
+    "axes.titlesize": 8,
+    "axes.labelsize": 8,
+    "legend.fontsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
     "figure.dpi": 150,
     "figure.constrained_layout.use": True,
     "savefig.bbox": None,
@@ -118,7 +183,7 @@ def is_warm_success(result: dict) -> bool:
 
 
 def extract_client_latencies_ms(system_name: str) -> list:
-    path = SYSTEM_SOURCES[system_name]
+    path = VARIANTS[system_name]["latency_path"]
     results = load_invocations(path)
     return [
         r["times"]["client"] / 1000.0
@@ -128,7 +193,7 @@ def extract_client_latencies_ms(system_name: str) -> list:
 
 
 def extract_throughput_ops_per_sec(system_name: str) -> float:
-    path = THROUGHPUT_C100_SOURCES[system_name]
+    path = VARIANTS[system_name]["throughput_path"]
     if not path.exists():
         raise FileNotFoundError(f"Missing results file: {path}")
     data = json.loads(path.read_text())
@@ -145,17 +210,22 @@ def extract_throughput_ops_per_sec(system_name: str) -> float:
 
 def add_violin_panel(ax, systems: list, title: str) -> None:
     rows = []
+    mean_points = []
     for system in systems:
-        for latency_ms in extract_client_latencies_ms(system):
-            rows.append({"system": system, "latency_ms": latency_ms})
+        latencies = extract_client_latencies_ms(system)
+        for latency_ms in latencies:
+            rows.append({"system": VARIANTS[system]["label"], "latency_ms": latency_ms})
+        mean_points.append((system, float(np.mean(latencies))))
     frame = pd.DataFrame(rows)
+    labels = [VARIANTS[system]["label"] for system in systems]
+    colors = [COLORS[VARIANTS[system]["family"]] for system in systems]
 
     sns.violinplot(
         data=frame,
         x="system",
         y="latency_ms",
-        order=systems,
-        palette=[COLORS[system] for system in systems],
+        order=labels,
+        palette=colors,
         inner="quart",
         cut=0,
         linewidth=0.8,
@@ -168,17 +238,36 @@ def add_violin_panel(ax, systems: list, title: str) -> None:
     ax.set_ylabel("Client latency (ms)")
     ax.grid(True, axis="y", alpha=0.3)
 
+    for xpos, (system, mean_latency) in enumerate(mean_points):
+        ax.scatter(xpos, mean_latency, color="black", s=18, zorder=5)
+        dx, dy = MEAN_LABEL_OFFSETS.get(system, (0.0, 3.0))
+        ax.annotate(
+            f"{mean_latency:.1f}",
+            xy=(xpos, mean_latency),
+            xytext=(dx, dy),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="black",
+        )
+
 
 def plot_latency_violins() -> Path:
-    fig, axes = plt.subplots(1, 2, figsize=scaled_figsize(12, 3.2))
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=scaled_figsize(12, 3.2),
+        gridspec_kw={"width_ratios": [len(LEFT_PANEL), len(RIGHT_PANEL)]},
+    )
 
     add_violin_panel(axes[0], LEFT_PANEL, "")  # "Lower-latency variants"
     add_violin_panel(axes[1], RIGHT_PANEL, "")  # "Higher-latency variants"
 
-    axes[0].set_ylim(bottom=0, top=50)
-    axes[1].set_ylim(bottom=0, top=1000)
+    axes[0].set_ylim(bottom=0, top=100)
+    axes[1].set_ylim(bottom=0, top=800)
 
-    out_path = OUT_DIR / "01_latency_violins.png"
+    out_path = OUT_DIR / "01_latency_violins.pdf"
     fig.savefig(out_path)
     plt.close(fig)
     print(f"  {out_path.name}")
@@ -187,16 +276,17 @@ def plot_latency_violins() -> Path:
 
 def add_throughput_panel(ax, systems: list, title: str) -> None:
     values = [extract_throughput_ops_per_sec(system) for system in systems]
+    labels = [VARIANTS[system]["label"] for system in systems]
     positions = np.arange(len(systems))
     bars = ax.bar(
         positions,
         values,
-        color=[COLORS[system] for system in systems],
+        color=[COLORS[VARIANTS[system]["family"]] for system in systems],
         width=0.7,
         alpha=0.85,
     )
     ax.set_xticks(positions)
-    ax.set_xticklabels(systems)
+    ax.set_xticklabels(labels)
     ax.set_title(title)
     ax.set_ylabel("Throughput (ops/s)")
     ax.grid(True, axis="y", alpha=0.3)
@@ -233,17 +323,18 @@ def plot_throughput_c100_singlecol() -> Path:
 
     values = [extract_throughput_ops_per_sec(system) for system in SYSTEMS]
     positions = np.arange(len(SYSTEMS))
+    labels = [VARIANTS[system]["label_alt"] for system in SYSTEMS]
     bars = ax.bar(
         positions,
         values,
-        color=[COLORS[system] for system in SYSTEMS],
+        color=[COLORS[VARIANTS[system]["family"]] for system in SYSTEMS],
         width=0.7,
         alpha=0.85,
     )
 
     ax.set_ylabel("Throughput (ops/s)")
     ax.set_xticks(positions)
-    ax.set_xticklabels(SYSTEMS, rotation=35, ha="right")
+    ax.set_xticklabels(labels, rotation=35, ha="right")
     ax.grid(True, axis="y", alpha=0.3)
 
     for bar, value in zip(bars, values):
@@ -256,7 +347,7 @@ def plot_throughput_c100_singlecol() -> Path:
             fontsize=7,
         )
 
-    out_path = OUT_DIR / "03_throughput_c100_singlecol.png"
+    out_path = OUT_DIR / "03_throughput_c100_singlecol.pdf"
     fig.savefig(out_path)
     plt.close(fig)
     print(f"  {out_path.name}")

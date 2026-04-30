@@ -823,9 +823,7 @@ def plot_latency_decomposition():
         results = list(invocations[0].values())
 
         # Filter warm invocations
-        warm = [r for r in results
-                if not r.get("stats", {}).get("cold_start")
-                and not r.get("stats", {}).get("failure")]
+        warm = [r for r in results if _is_warm(r)]
         if not warm:
             return None
 
@@ -1080,7 +1078,10 @@ def plot_latency_scatter():
         for r in results:
             begin = r.get("output", {}).get("begin", 0)
             client_ms = r["times"]["client"] / 1000
-            cold = r.get("stats", {}).get("cold_start", False)
+            cold = (
+                r.get("stats", {}).get("cold_start", False)
+                or r.get("output", {}).get("is_cold", False)
+            )
             if begin > 0:
                 points.append((begin, client_ms, cold))
 
@@ -1141,7 +1142,10 @@ def _plot_scatter_subset(subset_systems, filename, title_tag, cutoff_s=10):
         for r in results:
             begin = r.get("output", {}).get("begin", 0)
             client_ms = r["times"]["client"] / 1000
-            cold = r.get("stats", {}).get("cold_start", False)
+            cold = (
+                r.get("stats", {}).get("cold_start", False)
+                or r.get("output", {}).get("is_cold", False)
+            )
             if begin > 0:
                 points.append((begin, client_ms, cold))
 
